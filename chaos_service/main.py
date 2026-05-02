@@ -6,7 +6,8 @@ Exposes fault-injection, status, and DLX history endpoints.
 """
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from chaos_service.routes import consumer_routes, broker_routes, queue_routes, status_routes
+from . import routes
+from .routes import consumer_routes, broker_routes, queue_routes, status_routes
 
 app = FastAPI(title="ShopFlow Chaos Control Panel", version="1.0.0")
 app.add_middleware(CORSMiddleware, allow_origins=["*"],

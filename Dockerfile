@@ -13,6 +13,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 WORKDIR /app
 
+# Set PYTHONPATH so absolute imports like 'from src...' work
+ENV PYTHONPATH=/app:$PYTHONPATH
+
 # Install Python deps first (layer-cached)
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt

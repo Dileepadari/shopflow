@@ -17,7 +17,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import Optional
 
-from producer_api.routes import order_routes
+from producer_api.routes import order_routes, mgmt_routes
 
 app = FastAPI(
     title="ShopFlow Producer API",
@@ -33,6 +33,7 @@ app.add_middleware(
 )
 
 app.include_router(order_routes.router)
+app.include_router(mgmt_routes.router)
 
 @app.get("/health")
 def health():
