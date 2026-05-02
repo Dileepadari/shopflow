@@ -1,0 +1,11 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+@layer base { body { @apply bg-gray-950 text-gray-100 antialiased; } }
+@layer components {
+  .panel { @apply bg-gray-900 border border-gray-800 rounded-xl p-4; }
+  .panel-title { @apply text-xs font-semibold uppercase tracking-widest text-gray-400 mb-3; }
+  .badge-green  { @apply px-2 py-0.5 rounded text-xs bg-green-900 text-green-300; }
+  .badge-red    { @apply px-2 py-0.5 rounded text-xs bg-red-900 text-red-300; }
+  .badge-yellow { @apply px-2 py-0.5 rounded text-xs bg-yellow-900 text-yellow-300; }
+}

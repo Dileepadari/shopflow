@@ -1,0 +1,373 @@
+# =============================================================================
+#  ShopFlow — docker-compose.yml
+#  Run everything:  docker compose up --build
+#
+#  Service startup order:
+#    rabbit1/2/3  →  haproxy  →  cluster_init  →  [all consumers]
+#                                               →  chaos_service
+#                                               →  producer_api
+#                                               →  frontend
+# =============================================================================
+
+version: "3.9"
+
+networks:
+  shopflow_net:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.20.0.0/24
+
+volumes:
+  rabbit1_data:
+  rabbit2_data:
+  rabbit3_data:
+  shared_logs:     # Shared log volume: consumers + DLX consumer + chaos service read from it
+
+x-rabbitmq-common: &rabbitmq-common
+  image: rabbitmq:3.13-management-alpine
+  networks:
+    shopflow_net:
+  environment:
+    RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER:-admin}
+    RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASS:-shopflow123}
+    RABBITMQ_DEFAULT_VHOST: ${RABBITMQ_VHOST:-shopflow}
+    RABBITMQ_ERLANG_COOKIE: ${RABBITMQ_ERLANG_COOKIE:-SHOPFLOW_SECRET_COOKIE_2025}
+    RABBITMQ_CONFIG_FILE: /etc/rabbitmq/rabbitmq
+  volumes:
+    - ./infrastructure/rabbitmq/rabbitmq.conf:/etc/rabbitmq/rabbitmq.conf:ro
+    - ./infrastructure/rabbitmq/enabled_plugins:/etc/rabbitmq/enabled_plugins:ro
+    - ./infrastructure/rabbitmq/definitions.json:/etc/rabbitmq/definitions.json:ro
+  healthcheck:
+    test: ["CMD", "rabbitmq-diagnostics", "ping"]
+    interval: 10s
+    timeout: 5s
+    retries: 15
+    start_period: 40s
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Common env block shared by all Python services that connect via HAProxy
+# ─────────────────────────────────────────────────────────────────────────────
+x-python-env: &python-env
+  RABBITMQ_HOST: haproxy
+  HAPROXY_AMQP_PORT: 5670
+  RABBITMQ_USER: ${RABBITMQ_USER:-admin}
+  RABBITMQ_PASS: ${RABBITMQ_PASS:-shopflow123}
+  RABBITMQ_VHOST: ${RABBITMQ_VHOST:-shopflow}
+  PREFETCH_COUNT: ${PREFETCH_COUNT:-1}
+  MAX_RETRIES: ${MAX_RETRIES:-3}
+  MESSAGE_TTL_MS: ${MESSAGE_TTL_MS:-60000}
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Common restart + depends_on block for ALL consumers
+# All consumers wait for cluster_init to complete successfully
+# ─────────────────────────────────────────────────────────────────────────────
+x-consumer-common: &consumer-common
+  build:
+    context: .
+    dockerfile: Dockerfile
+  networks:
+    shopflow_net:
+  environment:
+    <<: *python-env
+  volumes:
+    - shared_logs:/app/logs
+  restart: on-failure
+  depends_on:
+    cluster_init:
+      condition: service_completed_successfully
+
+services:
+
+  # ===========================================================================
+  # RabbitMQ Cluster — 3 nodes
+  # ===========================================================================
+
+  rabbit1:
+    <<: *rabbitmq-common
+    container_name: rabbit1
+    hostname: rabbit1
+    networks:
+      shopflow_net:
+        ipv4_address: 172.20.0.11
+    ports:
+      - "${RABBIT1_AMQP_PORT:-5672}:5672"
+      - "${RABBIT1_MGMT_PORT:-15672}:15672"
+    volumes:
+      - rabbit1_data:/var/lib/rabbitmq
+      - ./infrastructure/rabbitmq/rabbitmq.conf:/etc/rabbitmq/rabbitmq.conf:ro
+      - ./infrastructure/rabbitmq/enabled_plugins:/etc/rabbitmq/enabled_plugins:ro
+      - ./infrastructure/rabbitmq/definitions.json:/etc/rabbitmq/definitions.json:ro
+
+  rabbit2:
+    <<: *rabbitmq-common
+    container_name: rabbit2
+    hostname: rabbit2
+    networks:
+      shopflow_net:
+        ipv4_address: 172.20.0.12
+    ports:
+      - "${RABBIT2_AMQP_PORT:-5673}:5672"
+      - "${RABBIT2_MGMT_PORT:-15673}:15672"
+    volumes:
+      - rabbit2_data:/var/lib/rabbitmq
+      - ./infrastructure/rabbitmq/rabbitmq.conf:/etc/rabbitmq/rabbitmq.conf:ro
+      - ./infrastructure/rabbitmq/enabled_plugins:/etc/rabbitmq/enabled_plugins:ro
+      - ./infrastructure/rabbitmq/definitions.json:/etc/rabbitmq/definitions.json:ro
+    depends_on:
+      rabbit1:
+        condition: service_healthy
+
+  rabbit3:
+    <<: *rabbitmq-common
+    container_name: rabbit3
+    hostname: rabbit3
+    networks:
+      shopflow_net:
+        ipv4_address: 172.20.0.13
+    ports:
+      - "${RABBIT3_AMQP_PORT:-5674}:5672"
+      - "${RABBIT3_MGMT_PORT:-15674}:15672"
+    volumes:
+      - rabbit3_data:/var/lib/rabbitmq
+      - ./infrastructure/rabbitmq/rabbitmq.conf:/etc/rabbitmq/rabbitmq.conf:ro
+      - ./infrastructure/rabbitmq/enabled_plugins:/etc/rabbitmq/enabled_plugins:ro
+      - ./infrastructure/rabbitmq/definitions.json:/etc/rabbitmq/definitions.json:ro
+    depends_on:
+      rabbit1:
+        condition: service_healthy
+
+  # ===========================================================================
+  # HAProxy — unified AMQP entrypoint
+  # ===========================================================================
+
+  haproxy:
+    image: haproxy:2.9-alpine
+    container_name: haproxy
+    networks:
+      shopflow_net:
+        ipv4_address: 172.20.0.10
+    ports:
+      - "${HAPROXY_AMQP_PORT:-5670}:5670"
+      - "${HAPROXY_STATS_PORT:-8404}:8404"
+    volumes:
+      - ./infrastructure/haproxy/haproxy.cfg:/usr/local/etc/haproxy/haproxy.cfg:ro
+    depends_on:
+      rabbit1:
+        condition: service_healthy
+      rabbit2:
+        condition: service_healthy
+      rabbit3:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "haproxy", "-c", "-f", "/usr/local/etc/haproxy/haproxy.cfg"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ===========================================================================
+  # cluster_init — ONE-SHOT service
+  # Declares all exchanges, queues, and bindings.
+  # Exits 0 on success → consumers and other services start.
+  # ===========================================================================
+
+  cluster_init:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: cluster_init
+    networks:
+      shopflow_net:
+    environment:
+      <<: *python-env
+    command: python scripts/cluster_init.py
+    restart: "no"   # Must not restart — it's a one-shot init
+    depends_on:
+      haproxy:
+        condition: service_healthy
+
+  # ===========================================================================
+  # CONSUMERS — FR-01: Work Queues
+  # ===========================================================================
+
+  payment_consumer_1:
+    <<: *consumer-common
+    container_name: payment_consumer_1
+    command: python src/consumers/payment_consumer.py
+
+  payment_consumer_2:
+    <<: *consumer-common
+    container_name: payment_consumer_2
+    command: python src/consumers/payment_consumer.py
+
+  inventory_consumer_1:
+    <<: *consumer-common
+    container_name: inventory_consumer_1
+    command: python src/consumers/inventory_consumer.py
+
+  inventory_consumer_2:
+    <<: *consumer-common
+    container_name: inventory_consumer_2
+    command: python src/consumers/inventory_consumer.py
+
+  # ===========================================================================
+  # CONSUMERS — FR-02: Fanout (order.events)
+  # ===========================================================================
+
+  email_consumer:
+    <<: *consumer-common
+    container_name: email_consumer
+    command: python src/consumers/email_consumer.py
+
+  sms_consumer:
+    <<: *consumer-common
+    container_name: sms_consumer
+    command: python src/consumers/sms_consumer.py
+
+  push_consumer:
+    <<: *consumer-common
+    container_name: push_consumer
+    command: python src/consumers/push_consumer.py
+
+  # ===========================================================================
+  # CONSUMERS — FR-03: Direct (logs.direct)
+  # ===========================================================================
+
+  log_error_consumer:
+    <<: *consumer-common
+    container_name: log_error_consumer
+    command: python src/consumers/log_error_consumer.py
+
+  log_info_consumer:
+    <<: *consumer-common
+    container_name: log_info_consumer
+    command: python src/consumers/log_info_consumer.py
+
+  # ===========================================================================
+  # CONSUMERS — FR-04: Topic (notifications.topic)
+  # ===========================================================================
+
+  notif_email_consumer:
+    <<: *consumer-common
+    container_name: notif_email_consumer
+    command: python src/consumers/notif_email_consumer.py
+
+  notif_sms_consumer:
+    <<: *consumer-common
+    container_name: notif_sms_consumer
+    command: python src/consumers/notif_sms_consumer.py
+
+  notif_audit_consumer:
+    <<: *consumer-common
+    container_name: notif_audit_consumer
+    command: python src/consumers/notif_audit_consumer.py
+
+  # ===========================================================================
+  # CONSUMERS — FR-05: Headers (orders.headers)
+  # ===========================================================================
+
+  eu_processor:
+    <<: *consumer-common
+    container_name: eu_processor
+    command: python src/consumers/eu_processor.py
+
+  us_processor:
+    <<: *consumer-common
+    container_name: us_processor
+    command: python src/consumers/us_processor.py
+
+  xml_legacy_consumer:
+    <<: *consumer-common
+    container_name: xml_legacy_consumer
+    command: python src/consumers/xml_legacy_consumer.py
+
+  # ===========================================================================
+  # CONSUMERS — FR-08: Dead Letter Exchange
+  # ===========================================================================
+
+  dead_letter_consumer:
+    <<: *consumer-common
+    container_name: dead_letter_consumer
+    command: python src/consumers/dead_letter_consumer.py
+
+  # ===========================================================================
+  # Producer API — REST endpoints to publish orders on demand
+  # Replaces running producers manually from the command line
+  # ===========================================================================
+
+  producer_api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: producer_api
+    networks:
+      shopflow_net:
+        ipv4_address: 172.20.0.40
+    ports:
+      - "${PRODUCER_API_PORT:-8090}:8090"
+    environment:
+      <<: *python-env
+    command: uvicorn producer_api.main:app --host 0.0.0.0 --port 8090 --reload
+    volumes:
+      - shared_logs:/app/logs
+    restart: on-failure
+    depends_on:
+      cluster_init:
+        condition: service_completed_successfully
+
+  # ===========================================================================
+  # Chaos Control Panel
+  # ===========================================================================
+
+  chaos_service:
+    build:
+      context: ./chaos_service
+      dockerfile: Dockerfile
+    container_name: chaos_service
+    networks:
+      shopflow_net:
+        ipv4_address: 172.20.0.20
+    ports:
+      - "${CHAOS_SERVICE_PORT:-8080}:8080"
+    environment:
+      RABBITMQ_HOST: haproxy
+      RABBITMQ_PORT: 5670
+      RABBITMQ_USER: ${RABBITMQ_USER:-admin}
+      RABBITMQ_PASS: ${RABBITMQ_PASS:-shopflow123}
+      RABBITMQ_VHOST: ${RABBITMQ_VHOST:-shopflow}
+      RABBIT1_MGMT: http://172.20.0.11:15672
+      RABBIT2_MGMT: http://172.20.0.12:15672
+      RABBIT3_MGMT: http://172.20.0.13:15672
+      PRODUCER_API_URL: http://172.20.0.40:8090
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - shared_logs:/app/logs
+    restart: on-failure
+    depends_on:
+      cluster_init:
+        condition: service_completed_successfully
+
+  # ===========================================================================
+  # React Frontend Dashboard
+  # ===========================================================================
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: shopflow_frontend
+    networks:
+      shopflow_net:
+        ipv4_address: 172.20.0.30
+    ports:
+      - "${FRONTEND_PORT:-3000}:80"
+    environment:
+      VITE_RABBITMQ_MGMT_URL: http://localhost:15672
+      VITE_RABBITMQ_USER: ${RABBITMQ_USER:-admin}
+      VITE_RABBITMQ_PASS: ${RABBITMQ_PASS:-shopflow123}
+      VITE_RABBITMQ_VHOST: ${RABBITMQ_VHOST:-shopflow}
+      VITE_CHAOS_API_URL: http://localhost:8080
+      VITE_PRODUCER_API_URL: http://localhost:8090
+    depends_on:
+      - chaos_service
+      - producer_api
