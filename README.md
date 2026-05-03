@@ -5,7 +5,7 @@ A production-grade, fully Dockerized e-commerce order processing system using Ra
 
 ---
 
-## 🚀 Quick Start
+## Quick Start
 
 ### Prerequisites
 - Docker Desktop (Mac/Windows) or Docker Engine (Linux)
@@ -30,7 +30,7 @@ That's it! All 24 services auto-start with correct dependency order:
 
 ---
 
-## 📊 Access Points
+## Access Points
 
 | URL | Service | Credentials | Purpose |
 |-----|---------|-------------|---------|
@@ -42,7 +42,7 @@ That's it! All 24 services auto-start with correct dependency order:
 
 ---
 
-## 📦 Publish Orders
+## Publish Orders
 
 ### Single Order via REST
 ```bash
@@ -120,7 +120,7 @@ curl -X POST http://localhost:8080/chaos/restore-all \
 
 ---
 
-## 🧪 Load Testing
+## Load Testing
 
 ### Setup (Local Machine)
 ```bash
@@ -147,7 +147,7 @@ Load test results saved to `tests/results/` with:
 
 ---
 
-## 📊 Real-Time Monitoring Dashboard
+## Real-Time Monitoring Dashboard
 
 ### Overview Tab
 - **Cluster Health:** 3 nodes with memory/disk/uptime metrics
@@ -203,7 +203,7 @@ Load test results saved to `tests/results/` with:
 
 ---
 
-## 🔧 Configuration & Tuning
+## Configuration & Tuning
 
 ### Runtime Environment Variables (`.env`)
 ```bash
@@ -244,7 +244,7 @@ MESSAGE_TTL_MS=10000
 
 ---
 
-## 📋 System Guarantees
+## System Guarantees
 
 | Guarantee | How It Works |
 |-----------|------------|
@@ -257,7 +257,7 @@ MESSAGE_TTL_MS=10000
 
 ---
 
-## 🧹 Cleanup & Reset
+## Cleanup & Reset
 
 ### Full Teardown
 ```bash
