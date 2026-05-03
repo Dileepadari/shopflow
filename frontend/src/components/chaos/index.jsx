@@ -216,29 +216,11 @@ export function ChaosControlPanel({ queues = [], exchanges = [] }) {
       </div>
 
       {/* Section: Consumer Delay */}
-      <div className="border-t border-gray-700 pt-4">
-        <h3 className="text-sm font-semibold text-blue-400 mb-3">Simulate Slow Consumer</h3>
-        <div className="grid grid-cols-3 gap-3">
-          <div>
-            <label className="text-xs font-semibold text-gray-400 block mb-1">Delay (ms)</label>
-            <input
-              type="number"
-              value={delayMs}
-              onChange={(e) => setDelayMs(parseInt(e.target.value))}
-              className="w-full px-2 py-2 bg-gray-800 border border-gray-700 rounded text-sm text-white"
-            />
-          </div>
-          <Button
-            onClick={() =>
-              executeAction(() => chaos.stopConsumer(selectedService), `Apply delay ${delayMs}ms`)
-            }
-            disabled={acting}
-            className="col-span-2 text-xs"
-          >
-            Apply Delay
-          </Button>
-        </div>
-      </div>
+      {/* NOTE: Delay feature not yet implemented. To add:
+          1. Implement /chaos/consumer/delay endpoint in backend
+          2. Use 'tc' (traffic control) or similar for network delay simulation
+          3. Uncomment this section when ready
+      */}
 
       {/* Section: Global Controls */}
       <div className="border-t border-gray-700 pt-4">

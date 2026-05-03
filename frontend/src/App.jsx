@@ -14,6 +14,7 @@ import {
   MessagePublisherPanel,
   ConnectionMapPanel,
   OverviewPanel,
+  OrderSenderPanel,
 } from './components/panels/advanced'
 import { ChaosControlPanel } from './components/chaos/index'
 import * as rabbitmq from './api/rabbitmq'
@@ -27,6 +28,7 @@ const TABS = [
   { id: 'consumers', label: 'Consumers' },
   { id: 'connections', label: 'Connections' },
   { id: 'dlx', label: 'DLX Audit' },
+  { id: 'orders', label: '📦 Orders' },
   { id: 'publisher', label: 'Publisher' },
   { id: 'chaos', label: '⚡ Chaos' },
 ]
@@ -133,6 +135,9 @@ export default function App() {
 
       case 'dlx':
         return <DLXAuditLogPanel dlxHistory={dlxHistory} loading={loading} error={error} />
+
+      case 'orders':
+        return <OrderSenderPanel />
 
       case 'publisher':
         return <MessagePublisherPanel exchanges={exchanges} />

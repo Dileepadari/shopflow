@@ -7,7 +7,7 @@ Exposes fault-injection, status, and DLX history endpoints.
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from . import routes
-from .routes import consumer_routes, broker_routes, queue_routes, status_routes
+from .routes import consumer_routes, broker_routes, queue_routes, status_routes, message_routes
 
 app = FastAPI(title="ShopFlow Chaos Control Panel", version="1.0.0")
 app.add_middleware(CORSMiddleware, allow_origins=["*"],
@@ -16,6 +16,7 @@ app.add_middleware(CORSMiddleware, allow_origins=["*"],
 app.include_router(consumer_routes.router, prefix="/chaos")
 app.include_router(broker_routes.router,   prefix="/chaos")
 app.include_router(queue_routes.router,    prefix="/chaos")
+app.include_router(message_routes.router,  prefix="/chaos")
 app.include_router(status_routes.router,   prefix="/chaos")
 
 @app.get("/health")

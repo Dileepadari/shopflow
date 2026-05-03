@@ -14,21 +14,26 @@ export function Card({ className, children }) {
 /**
  * Badge — Colored label for status indicators.
  */
-export function Badge({ status, label, className }) {
+export function Badge({ status, label, variant, className, children }) {
   const statusClasses = {
     healthy: 'bg-green-900 text-green-200 border border-green-700',
     warning: 'bg-yellow-900 text-yellow-200 border border-yellow-700',
     error: 'bg-red-900 text-red-200 border border-red-700',
     info: 'bg-blue-900 text-blue-200 border border-blue-700',
     offline: 'bg-gray-700 text-gray-200 border border-gray-600',
+    success: 'bg-green-700 text-green-200 border border-green-600',
   }
+  
+  const displayStatus = status || variant || 'info'
+  const displayText = label || children
+  
   return (
     <span className={clsx(
       'inline-block px-2 py-1 rounded text-xs font-semibold',
-      statusClasses[status] || statusClasses.info,
+      statusClasses[displayStatus] || statusClasses.info,
       className
     )}>
-      {label}
+      {displayText}
     </span>
   )
 }
