@@ -5,3 +5,4 @@ httpx==0.27.0
 pika==1.3.2
 python-dotenv==1.0.1
 python-multipart
+requests-unixsocket==0.3.0

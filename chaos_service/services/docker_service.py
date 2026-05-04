@@ -120,12 +120,12 @@ class DockerService:
                 "eu_processor", "us_processor", "xml_legacy_consumer", "dead_letter_consumer",
             }
             containers = self._client.containers.list(all=True)
-            status_list = [
-                {"name": c.name, "status": c.status}
+            status_dict = {
+                c.name: {"state": c.status, "image": c.image.tags[0] if c.image.tags else "unknown"}
                 for c in containers if c.name in shopflow_names
-            ]
-            logger.info(f"Retrieved status for {len(status_list)} containers")
-            return status_list
+            }
+            logger.info(f"Retrieved status for {len(status_dict)} containers")
+            return status_dict
         except Exception as e:
             logger.error(f"Failed to get container status: {e}")
             raise
