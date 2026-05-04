@@ -11,8 +11,36 @@ class DockerService:
     def __init__(self):
         # Lazy initialization - connect only when first method is called
         self._client = None
-        self._docker_host = os.getenv('DOCKER_HOST', 'unix:///var/run/docker.sock')
+        self._docker_host = self._normalize_docker_host(
+            os.getenv('DOCKER_HOST', 'unix:///var/run/docker.sock')
+        )
     
+    def _normalize_docker_host(self, host):
+        if host is None or host.strip() == "":
+            return 'unix:///var/run/docker.sock'
+
+        host = host.strip()
+        if host.startswith('http+docker://'):
+            fallback = 'unix:///var/run/docker.sock'
+            if os.path.exists('/var/run/docker.sock'):
+                logger.warning(
+                    "DOCKER_HOST uses unsupported scheme http+docker; "
+                    "falling back to socket %s",
+                    fallback,
+                )
+                return fallback
+            logger.warning(
+                "DOCKER_HOST uses unsupported scheme http+docker and no local socket "
+                "was found; continuing with original value %s",
+                host,
+            )
+            return host
+
+        if host.startswith('tcp://'):
+            host = 'http://' + host[len('tcp://'):]
+
+        return host
+
     def _ensure_connected(self):
         """Lazily initialize Docker client on first use."""
         if self._client is None:
@@ -20,6 +48,23 @@ class DockerService:
                 self._client = docker.DockerClient(base_url=self._docker_host)
                 logger.info(f"Connected to Docker at {self._docker_host}")
             except docker.errors.DockerException as e:
+                message = str(e).lower()
+                fallback = 'unix:///var/run/docker.sock'
+                if 'http+docker' in message and self._docker_host != fallback:
+                    if os.path.exists('/var/run/docker.sock'):
+                        logger.warning(
+                            "Initial Docker client failed for %s; retrying with socket %s",
+                            self._docker_host, fallback,
+                        )
+                        try:
+                            self._client = docker.DockerClient(base_url=fallback)
+                            logger.info(f"Connected to Docker at {fallback}")
+                            return
+                        except Exception as retry_error:
+                            logger.error(
+                                "Retry with socket %s also failed: %s",
+                                fallback, retry_error,
+                            )
                 logger.error(f"Docker connection failed: {e}")
                 raise RuntimeError(f"Docker connection failed: {e}")
             except FileNotFoundError:
