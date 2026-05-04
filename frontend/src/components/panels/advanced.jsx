@@ -713,3 +713,207 @@ export function OrderSenderPanel() {
     </Card>
   )
 }
+
+/**
+ * PhonePublisherPanel — Direct SMS/phone notification publisher.
+ * Sends messages to notifications.topic exchange with routing keys.
+ */
+export function PhonePublisherPanel() {
+  const [phoneNumber, setPhoneNumber] = useState('+1-555-0100')
+  const [messageType, setMessageType] = useState('alert')
+  const [customMessage, setCustomMessage] = useState('')
+  const [orderId, setOrderId] = useState('ORD-001')
+  const [publishing, setPublishing] = useState(false)
+  const [message, setMessage] = useState('')
+
+  const messageTemplates = {
+    alert: {
+      title: '🚨 Emergency Alert',
+      default: 'URGENT: Your payment failed. Please update payment method immediately.',
+      routingKey: 'notification.sms.urgent',
+      description: 'Critical alerts that need immediate attention'
+    },
+    delivery: {
+      title: '📦 Delivery Update',
+      default: 'Your order is out for delivery. Expected arrival: Today.',
+      routingKey: 'notification.sms.normal',
+      description: 'Delivery status notifications'
+    },
+    confirmation: {
+      title: '✅ Order Confirmation',
+      default: 'Order confirmed! Order ID: ORD-123. Thank you for your purchase.',
+      routingKey: 'notification.sms.normal',
+      description: 'Order confirmation messages'
+    },
+    reminder: {
+      title: '📣 Reminder',
+      default: 'Reminder: Your order is ready for pickup at store. Reference: ORD-123',
+      routingKey: 'notification.sms.normal',
+      description: 'Pickup and reminder notifications'
+    },
+    promotion: {
+      title: '🎉 Promotion',
+      default: 'Exclusive offer: Get 20% off on your next purchase. Use code: SAVE20',
+      routingKey: 'notification.sms.normal',
+      description: 'Promotional messages'
+    }
+  }
+
+  const validatePhoneNumber = (phone) => {
+    // Basic phone validation: at least + followed by digits
+    const phoneRegex = /^\+?\d{1,3}-?\d{3,14}$/
+    return phoneRegex.test(phone)
+  }
+
+  const handlePublish = async () => {
+    try {
+      // Validate phone number
+      if (!validatePhoneNumber(phoneNumber)) {
+        setMessage('❌ Invalid phone number format. Use format like: +1-555-0100')
+        setTimeout(() => setMessage(''), 5000)
+        return
+      }
+
+      // Validate message
+      const finalMessage = customMessage.trim() || messageTemplates[messageType].default
+      if (finalMessage.length === 0) {
+        setMessage('❌ Message cannot be empty')
+        setTimeout(() => setMessage(''), 5000)
+        return
+      }
+
+      if (finalMessage.length > 160) {
+        setMessage('⚠️ Message is longer than 160 chars (SMS standard)')
+        // Still allow sending
+      }
+
+      setPublishing(true)
+      const BASE = import.meta.env.VITE_CHAOS_API_URL || 'http://localhost:8080'
+      const response = await fetch(`${BASE}/chaos/message/publish`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          exchange: 'notifications.topic',
+          routing_key: messageTemplates[messageType].routingKey,
+          body: {
+            order_id: orderId || 'SMS-' + Date.now(),
+            customer_phone: phoneNumber,
+            message: finalMessage,
+            message_type: messageType,
+            timestamp: new Date().toISOString(),
+          },
+        }),
+      })
+      const result = await response.json()
+      setMessage(`✓ SMS published to ${phoneNumber}!`)
+      setTimeout(() => setMessage(''), 4000)
+    } catch (err) {
+      setMessage(`❌ Error: ${err.message}`)
+    } finally {
+      setPublishing(false)
+    }
+  }
+
+  const template = messageTemplates[messageType]
+
+  return (
+    <Card>
+      <div className="mb-4">
+        <h2 className="text-lg font-bold text-white">📱 Phone Publisher (SMS)</h2>
+        <p className="text-xs text-gray-500 mt-1">Send direct SMS notifications to customers via notifications.topic</p>
+      </div>
+
+      <div className="space-y-3">
+        <div>
+          <label className="text-xs font-semibold text-gray-400 block mb-1">📞 Phone Number</label>
+          <input
+            type="text"
+            value={phoneNumber}
+            onChange={(e) => setPhoneNumber(e.target.value)}
+            placeholder="+1-555-0100"
+            className="w-full px-2 py-2 bg-gray-800 border border-gray-700 rounded text-sm text-white font-mono"
+          />
+          <p className="text-xs text-gray-500 mt-1">Format: +1-555-0100 or similar</p>
+        </div>
+
+        <div>
+          <label className="text-xs font-semibold text-gray-400 block mb-1">📋 Order ID (Optional)</label>
+          <input
+            type="text"
+            value={orderId}
+            onChange={(e) => setOrderId(e.target.value)}
+            placeholder="ORD-001"
+            className="w-full px-2 py-2 bg-gray-800 border border-gray-700 rounded text-sm text-white font-mono"
+          />
+          <p className="text-xs text-gray-500 mt-1">Reference for tracking</p>
+        </div>
+
+        <div>
+          <label className="text-xs font-semibold text-gray-400 block mb-1">📢 Message Type</label>
+          <div className="grid grid-cols-2 gap-2">
+            {Object.entries(messageTemplates).map(([type, config]) => (
+              <button
+                key={type}
+                onClick={() => setMessageType(type)}
+                className={clsx(
+                  'px-2 py-2 rounded text-xs font-semibold transition',
+                  messageType === type
+                    ? 'bg-blue-700 text-white border border-blue-500'
+                    : 'bg-gray-800 text-gray-300 border border-gray-700 hover:bg-gray-700'
+                )}
+              >
+                {config.title}
+              </button>
+            ))}
+          </div>
+          <p className="text-xs text-gray-500 mt-2">{template.description}</p>
+          <p className="text-xs text-gray-500 mt-1">
+            <strong>Routing:</strong> {template.routingKey}
+          </p>
+        </div>
+
+        <div>
+          <div className="flex items-center justify-between mb-1">
+            <label className="text-xs font-semibold text-gray-400">Message (160 char limit)</label>
+            <span className={clsx(
+              'text-xs',
+              customMessage.length > 160 ? 'text-orange-400' : 'text-gray-500'
+            )}>
+              {customMessage.length}/160
+            </span>
+          </div>
+          <textarea
+            value={customMessage}
+            onChange={(e) => setCustomMessage(e.target.value)}
+            placeholder={template.default}
+            rows="3"
+            maxLength="160"
+            className="w-full px-2 py-2 bg-gray-800 border border-gray-700 rounded text-sm text-white font-mono text-xs"
+          />
+          <p className="text-xs text-gray-500 mt-1">Leave empty to use template default</p>
+        </div>
+
+        <div className="bg-gray-900 border border-gray-700 rounded p-2 mb-3">
+          <p className="text-xs text-gray-300"><strong>Preview:</strong></p>
+          <p className="text-xs text-gray-400 mt-1 break-words">
+            {customMessage.trim() || template.default}
+          </p>
+        </div>
+
+        <Button onClick={handlePublish} disabled={publishing}>
+          {publishing ? 'Sending...' : `Send SMS to ${phoneNumber}`}
+        </Button>
+
+        {message && (
+          <div className={clsx('text-xs p-2 rounded',
+            message.includes('Error') ? 'bg-red-900 text-red-200' :
+            message.includes('⚠️') ? 'bg-yellow-900 text-yellow-200' :
+            'bg-green-900 text-green-300'
+          )}>
+            {message}
+          </div>
+        )}
+      </div>
+    </Card>
+  )
+}
