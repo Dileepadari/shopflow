@@ -18,42 +18,54 @@ import logging
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/mgmt", tags=["rabbitmq-management"])
 
-# Use rabbit1 directly for Management API (not HAProxy which only handles AMQP)
-RABBITMQ_MGMT_HOST = os.getenv("RABBITMQ_MGMT_HOST", "rabbit1")
-RABBITMQ_MGMT_PORT = 15672
+# Use RabbitMQ node management endpoints directly; HAProxy only handles AMQP.
+RABBITMQ_MGMT_HOSTS = [host.strip() for host in os.getenv("RABBITMQ_MGMT_HOSTS", "rabbit1,rabbit2,rabbit3").split(",") if host.strip()]
+RABBITMQ_MGMT_PORT = int(os.getenv("RABBITMQ_MGMT_PORT", "15672"))
 RABBITMQ_USER = os.getenv("RABBITMQ_USER", "admin")
 RABBITMQ_PASS = os.getenv("RABBITMQ_PASS", "shopflow123")
 VHOST = os.getenv("RABBITMQ_VHOST", "shopflow")
 
-BASE_URL = f"http://{RABBITMQ_MGMT_HOST}:{RABBITMQ_MGMT_PORT}/api"
 AUTH = base64.b64encode(f"{RABBITMQ_USER}:{RABBITMQ_PASS}".encode()).decode()
 
 
 def proxy_get(path: str) -> Any:
-    """Helper to proxy GET requests to RabbitMQ Management API"""
-    url = f"{BASE_URL}{path}"
-    try:
-        logger.info(f"Proxying GET {url}")
-        request = urllib.request.Request(url)
-        request.add_header("Authorization", f"Basic {AUTH}")
-        request.add_header("Content-Type", "application/json")
-        
-        with urllib.request.urlopen(request, timeout=10) as response:
-            data = json.loads(response.read().decode())
-            logger.info(f"Got response from {url}: {len(str(data))} bytes")
-            return data
-    except urllib.error.HTTPError as e:
-        logger.error(f"RabbitMQ API HTTP error {e.code}: {e.reason}")
-        raise HTTPException(status_code=502, detail=f"RabbitMQ API returned {e.code}")
-    except urllib.error.URLError as e:
-        logger.error(f"Connection error to {RABBITMQ_MGMT_HOST}:{RABBITMQ_MGMT_PORT}: {e.reason}")
-        raise HTTPException(status_code=502, detail=f"Cannot reach RabbitMQ: {str(e.reason)}")
-    except json.JSONDecodeError as e:
-        logger.error(f"Invalid JSON response: {e}")
-        raise HTTPException(status_code=502, detail="Invalid response from RabbitMQ")
-    except Exception as e:
-        logger.error(f"Unexpected error: {type(e).__name__}: {e}")
-        raise HTTPException(status_code=502, detail=f"Error: {str(e)}")
+    """Helper to proxy GET requests to RabbitMQ Management API."""
+    last_error = None
+
+    for host in RABBITMQ_MGMT_HOSTS:
+        url = f"http://{host}:{RABBITMQ_MGMT_PORT}/api{path}"
+        try:
+            logger.info(f"Proxying GET {url}")
+            request = urllib.request.Request(url)
+            request.add_header("Authorization", f"Basic {AUTH}")
+            request.add_header("Content-Type", "application/json")
+
+            with urllib.request.urlopen(request, timeout=10) as response:
+                data = json.loads(response.read().decode())
+                logger.info(f"Got response from {url}: {len(str(data))} bytes")
+                return data
+        except urllib.error.HTTPError as e:
+            logger.error(f"RabbitMQ API HTTP error {e.code} from {host}:{RABBITMQ_MGMT_PORT}: {e.reason}")
+            raise HTTPException(status_code=502, detail=f"RabbitMQ API returned {e.code}")
+        except urllib.error.URLError as e:
+            logger.warning(f"Management endpoint {host}:{RABBITMQ_MGMT_PORT} unavailable: {e.reason}")
+            last_error = e
+            continue
+        except json.JSONDecodeError as e:
+            logger.error(f"Invalid JSON response from {host}:{RABBITMQ_MGMT_PORT}: {e}")
+            raise HTTPException(status_code=502, detail="Invalid response from RabbitMQ")
+        except Exception as e:
+            logger.error(f"Unexpected error while contacting {host}:{RABBITMQ_MGMT_PORT}: {type(e).__name__}: {e}")
+            last_error = e
+            continue
+
+    if last_error is not None:
+        reason = getattr(last_error, 'reason', str(last_error))
+        logger.error(f"Unable to reach any RabbitMQ management host: {reason}")
+        raise HTTPException(status_code=502, detail=f"Cannot reach RabbitMQ management API: {reason}")
+
+    logger.error("Unable to reach RabbitMQ management API: no hosts configured")
+    raise HTTPException(status_code=502, detail="Cannot reach RabbitMQ management API")
 
 
 @router.get("/nodes")
