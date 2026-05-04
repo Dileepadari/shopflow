@@ -60,15 +60,173 @@ export function DLXAuditLogPanel({ dlxHistory = {}, loading, error }) {
 
 /**
  * MessagePublisherPanel — Form to publish test messages to exchanges.
+ * Each exchange type has its own message format and templates.
  */
 export function MessagePublisherPanel({ exchanges = [] }) {
   const [exchange, setExchange] = useState('')
   const [routingKey, setRoutingKey] = useState('')
-  const [body, setBody] = useState('{"order_id": 1, "amount": 99.99}')
+  const [body, setBody] = useState('{}')
   const [publishing, setPublishing] = useState(false)
   const [message, setMessage] = useState('')
 
+  // Exchange-specific templates and metadata
+  const exchangeTemplates = {
+    '': {
+      name: 'Select an exchange',
+      body: '{}',
+      routingKeyHint: '',
+      responseType: '❓ Unknown',
+      description: 'Select an exchange to see templates',
+      samples: []
+    },
+    'default': {
+      name: 'Default Exchange (Work Queues)',
+      body: '{"order_id": "ORD-001", "amount": 99.99, "customer_email": "customer@example.com", "items": [{"sku": "SKU-001", "qty": 1}]}',
+      routingKeyHint: 'payment_queue or inventory_queue',
+      responseType: '✓ Visible - Logs in console',
+      description: 'Work queue for payment & inventory processing',
+      samples: [
+        {
+          label: 'Payment Order',
+          key: 'payment_queue',
+          body: '{"order_id": "PAY-001", "amount": 150.50, "currency": "USD", "customer_email": "buyer@example.com", "items": [{"sku": "PROD-123", "name": "Laptop", "qty": 1, "price": 150.50}]}'
+        },
+        {
+          label: 'Inventory Update',
+          key: 'inventory_queue',
+          body: '{"order_id": "INV-001", "items": [{"sku": "SKU-001", "qty": 5}, {"sku": "SKU-002", "qty": 3}]}'
+        }
+      ]
+    },
+    'order.events': {
+      name: 'Fanout: order.events',
+      body: '{"order_id": "ORD-FAN-001", "customer_email": "customer@example.com", "customer_phone": "+1-555-0100", "amount": 99.99}',
+      routingKeyHint: '(ignored - broadcasts to all)',
+      responseType: '✓ Visible - Email, SMS, Push logs',
+      description: 'Broadcasts order events to all listeners (email, SMS, push)',
+      samples: [
+        {
+          label: 'New Order Event',
+          key: '',
+          body: '{"order_id": "ORD-NEW-001", "customer_name": "John Doe", "customer_email": "john@example.com", "customer_phone": "+1-555-0199", "amount": 299.99, "items": [{"sku": "GAMING-PC", "qty": 1, "price": 299.99}], "event": "order.created"}'
+        }
+      ]
+    },
+    'logs.direct': {
+      name: 'Direct: logs.direct',
+      body: '{"level": "error", "service": "test_publisher", "message": "Test error message", "timestamp": "2025-05-04T10:00:00Z"}',
+      routingKeyHint: 'error, warning, info, or debug',
+      responseType: 'Check /app/logs/error_logs.jsonl',
+      description: 'Routes logs by severity. Writes to files, not visible on dashboard.',
+      samples: [
+        {
+          label: 'Error Log',
+          key: 'error',
+          body: '{"level": "error", "service": "order_processor", "message": "Failed to process order PAY-123", "order_id": "ORD-123", "error": "Payment gateway timeout"}'
+        },
+        {
+          label: 'Warning Log',
+          key: 'warning',
+          body: '{"level": "warning", "service": "inventory_service", "message": "Low stock for SKU-001", "sku": "SKU-001", "remaining_qty": 2}'
+        },
+        {
+          label: 'Info Log',
+          key: 'info',
+          body: '{"level": "info", "service": "order_producer", "message": "Order published successfully", "order_id": "ORD-456"}'
+        }
+      ]
+    },
+    'notifications.topic': {
+      name: 'Topic: notifications.topic',
+      body: '{"order_id": "ORD-NOTIF-001", "customer_email": "customer@example.com", "customer_phone": "+1-555-0100", "notification_type": "email"}',
+      routingKeyHint: 'notification.email.* or notification.sms.urgent',
+      responseType: 'Check /app/logs/notification_audit.jsonl',
+      description: 'Pattern-based routing. Notifications sent but not visible on UI.',
+      samples: [
+        {
+          label: 'Email Normal',
+          key: 'notification.email.normal',
+          body: '{"order_id": "ORD-EMAIL-001", "customer_email": "user@example.com", "subject": "Order Confirmation", "body": "Your order has been confirmed"}'
+        },
+        {
+          label: 'Email Urgent',
+          key: 'notification.email.urgent',
+          body: '{"order_id": "ORD-EMAIL-URG-001", "customer_email": "vip@example.com", "subject": "URGENT: Order Issue", "body": "Your order needs immediate attention"}'
+        },
+        {
+          label: 'SMS Urgent',
+          key: 'notification.sms.urgent',
+          body: '{"order_id": "ORD-SMS-URG-001", "customer_phone": "+1-555-0100", "message": "URGENT: Your payment failed. Please update payment method."}'
+        }
+      ]
+    },
+    'orders.headers': {
+      name: 'Headers: orders.headers (Region Routing)',
+      body: '{"order_id": "ORD-HDR-001", "amount": 99.99}',
+      routingKeyHint: '(ignored - uses headers)',
+      responseType: 'Region-specific processing',
+      description: 'Routes based on message headers (region, format). EU/US processors handle silently.',
+      samples: [
+        {
+          label: 'EU JSON Order',
+          key: '',
+          body: '{"order_id": "ORD-EU-001", "customer_email": "customer@example.eu", "amount": 149.99, "items": [{"sku": "EU-PROD-001", "qty": 1}]}',
+          headers: '{"region": "EU", "format": "json"}'
+        },
+        {
+          label: 'US JSON Order',
+          key: '',
+          body: '{"order_id": "ORD-US-001", "customer_email": "customer@example.com", "amount": 99.99, "items": [{"sku": "US-PROD-001", "qty": 1}]}',
+          headers: '{"region": "US", "format": "json"}'
+        },
+        {
+          label: 'XML Legacy Order',
+          key: '',
+          body: '<?xml version="1.0"?><order><id>ORD-XML-001</id><amount>199.99</amount></order>',
+          headers: '{"format": "xml"}'
+        }
+      ]
+    },
+    'dead.letter.exchange': {
+      name: 'Dead Letter Exchange (NOT For Direct Publishing)',
+      body: '{"error": "DLX cannot be triggered directly"}',
+      routingKeyHint: 'N/A',
+      responseType: 'Passive System - No Direct Publishing',
+      description: 'DLX is PASSIVE. Messages only arrive here when they FAIL in other queues after max retries. You cannot publish to it directly.',
+      samples: [
+        {
+          label: 'How to Trigger DLX',
+          key: '',
+          body: 'To see dead letters:\n1. Publish to another exchange (e.g., payment_queue)\n2. Kill the consumer before it ACKs\n3. Message retries will fail\n4. After max retries, message goes to DLX\n5. Check /app/logs/dead_letters.jsonl'
+        }
+      ]
+    }
+  }
+
+  const selectedTemplate = exchangeTemplates[exchange] || exchangeTemplates['']
+
+  const handleExchangeChange = (e) => {
+    const newExchange = e.target.value
+    setExchange(newExchange)
+    const template = exchangeTemplates[newExchange]
+    if (template) {
+      setBody(template.body)
+      setRoutingKey(template.routingKeyHint.split(' ')[0] || '')
+    }
+  }
+
+  const handleSampleClick = (sample) => {
+    setBody(sample.body)
+    setRoutingKey(sample.key)
+  }
+
   const handlePublish = async () => {
+    if (exchange === 'dead.letter.exchange') {
+      setMessage('❌ Cannot publish to DLX directly. See description for details.')
+      setTimeout(() => setMessage(''), 5000)
+      return
+    }
+
     try {
       setPublishing(true)
       const BASE = import.meta.env.VITE_CHAOS_API_URL || 'http://localhost:8080'
@@ -82,10 +240,10 @@ export function MessagePublisherPanel({ exchanges = [] }) {
         }),
       })
       const result = await response.json()
-      setMessage('Message published!')
-      setTimeout(() => setMessage(''), 3000)
+      setMessage(`✓ Message published! Response: ${selectedTemplate.responseType}`)
+      setTimeout(() => setMessage(''), 4000)
     } catch (err) {
-      setMessage(`Error: ${err.message}`)
+      setMessage(`❌ Error: ${err.message}`)
     } finally {
       setPublishing(false)
     }
@@ -93,55 +251,96 @@ export function MessagePublisherPanel({ exchanges = [] }) {
 
   return (
     <Card>
-      <h2 className="text-lg font-bold text-white mb-4">Message Publisher</h2>
+      <div className="mb-4">
+        <h2 className="text-lg font-bold text-white">Message Publisher</h2>
+        <p className="text-xs text-gray-500 mt-1">Test messages with exchange-specific templates. Each exchange has different message format and visibility.</p>
+      </div>
+
       <div className="space-y-3">
         <div>
-          <label className="text-xs font-semibold text-gray-400 block mb-1">Exchange</label>
+          <label className="text-xs font-semibold text-gray-400 block mb-1">📨 Exchange</label>
           <select
             value={exchange}
-            onChange={(e) => setExchange(e.target.value)}
-            className="w-full px-2 py-2 bg-gray-800 border border-gray-700 rounded text-sm text-white"
+            onChange={handleExchangeChange}
+            className="w-full px-2 py-2 bg-gray-800 border border-orange-600 rounded text-sm text-white font-semibold"
           >
-            <option value="">Select exchange</option>
-            {exchanges
-              .filter(e => !e.name.startsWith('amq.'))
-              .map((ex) => (
-                <option key={ex.name} value={ex.name}>
-                  {ex.name} ({ex.type})
-                </option>
-              ))}
+            <option value="">Select exchange...</option>
+            <optgroup label="Active Exchanges">
+              <option value="default">🔄 (default) - Work Queues</option>
+              <option value="order.events">📢 order.events - Fanout</option>
+              <option value="logs.direct">📋 logs.direct - Direct (Severity)</option>
+              <option value="notifications.topic">🔔 notifications.topic - Topic (Pattern)</option>
+              <option value="orders.headers">🗺️ orders.headers - Headers (Region)</option>
+            </optgroup>
+            <optgroup label="System Exchanges">
+              <option value="dead.letter.exchange">⚠️ dead.letter.exchange - DLX (Passive)</option>
+            </optgroup>
           </select>
         </div>
 
+        {exchange && (
+          <div className="bg-gray-900 border border-gray-700 rounded p-3 mb-3">
+            <p className="text-xs text-gray-300 mb-1"><strong>Type:</strong> {selectedTemplate.name}</p>
+            <p className="text-xs text-gray-400 mb-2"><strong>Description:</strong> {selectedTemplate.description}</p>
+            <div className={clsx('text-xs font-semibold p-2 rounded', 
+              selectedTemplate.responseType.includes('Visible') ? 'bg-green-900 text-green-300' :
+              selectedTemplate.responseType.includes('No UI') ? 'bg-yellow-900 text-yellow-300' :
+              'bg-red-900 text-red-300'
+            )}>
+              Response: {selectedTemplate.responseType}
+            </div>
+          </div>
+        )}
+
         <div>
-          <label className="text-xs font-semibold text-gray-400 block mb-1">Routing Key (optional)</label>
+          <label className="text-xs font-semibold text-gray-400 block mb-1">Routing Key {selectedTemplate.routingKeyHint && `(e.g., ${selectedTemplate.routingKeyHint})`}</label>
           <input
             type="text"
             value={routingKey}
             onChange={(e) => setRoutingKey(e.target.value)}
-            placeholder="e.g., notification.email.urgent"
-            className="w-full px-2 py-2 bg-gray-800 border border-gray-700 rounded text-sm text-white"
-          />
-        </div>
-
-        <div>
-          <label className="text-xs font-semibold text-gray-400 block mb-1">Message Body (JSON)</label>
-          <textarea
-            value={body}
-            onChange={(e) => setBody(e.target.value)}
-            rows="4"
+            placeholder={selectedTemplate.routingKeyHint || 'Leave empty if not needed'}
             className="w-full px-2 py-2 bg-gray-800 border border-gray-700 rounded text-sm text-white font-mono"
           />
         </div>
 
-        <Button onClick={handlePublish} disabled={!exchange || publishing}>
-          {publishing ? 'Publishing...' : 'Publish Message'}
+        <div>
+          <div className="flex items-center justify-between mb-1">
+            <label className="text-xs font-semibold text-gray-400">Message Body (JSON)</label>
+            {selectedTemplate.samples && selectedTemplate.samples.length > 0 && (
+              <div className="text-xs space-y-1">
+                <span className="text-gray-500 mr-2">Quick Samples:</span>
+                {selectedTemplate.samples.map((sample, idx) => (
+                  <button
+                    key={idx}
+                    onClick={() => handleSampleClick(sample)}
+                    className="inline-block ml-1 px-2 py-1 bg-purple-800 hover:bg-purple-700 rounded text-purple-200 text-xs transition"
+                  >
+                    {sample.label}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+          <textarea
+            value={body}
+            onChange={(e) => setBody(e.target.value)}
+            rows="5"
+            className="w-full px-2 py-2 bg-gray-800 border border-gray-700 rounded text-sm text-white font-mono text-xs"
+          />
+        </div>
+
+        <Button onClick={handlePublish} disabled={!exchange || exchange === 'dead.letter.exchange' || publishing}>
+          {publishing ? 'Publishing...' : `Publish to ${exchange.split('.')[-1] || 'Exchange'}`}
         </Button>
 
         {message && (
-          <p className={clsx('text-xs', message.includes('Error') ? 'text-red-400' : 'text-green-400')}>
+          <div className={clsx('text-xs p-2 rounded', 
+            message.includes('Cannot publish') ? 'bg-red-900 text-red-200' :
+            message.includes('Error') ? 'bg-red-900 text-red-300' : 
+            'bg-green-900 text-green-300'
+          )}>
             {message}
-          </p>
+          </div>
         )}
       </div>
     </Card>
