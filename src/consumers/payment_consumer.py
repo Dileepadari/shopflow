@@ -9,6 +9,8 @@ class PaymentConsumer(BaseConsumer):
     min_delay, max_delay = 2.0, 5.0
 
     def process_message(self, payload: dict) -> None:
+        if float(payload.get("amount", 0)) <= 0:
+            raise ValueError(f"Invalid amount: {payload.get('amount')}")
         logger.info("[PAYMENT] Charging %s %s for order %s",
                     payload.get("currency"), payload.get("amount"), payload.get("order_id"))
 

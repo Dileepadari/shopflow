@@ -2,18 +2,18 @@
 src.consumers._base_consumer
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 Base class for all consumers.
-Provides: auto-reconnect, manual ACK/NACK, retry counting, DLX routing.
+Provides: auto-reconnect, manual ACK/NACK, DLX routing.
 Subclasses only need to override queue_name, consumer_tag, and process_message().
 """
 import logging
 import time
 import random
+import json
 import pika
 
 from src.core.connection import get_connection, get_channel
 from src.core.declarations import declare_all
-from src.core.message_builder import decode
-from src.utils.retry import should_dead_letter
+from src.core.message_builder import decode, build_properties
 from src.utils.logger import setup_logging
 
 
@@ -42,14 +42,30 @@ class BaseConsumer:
             channel.basic_ack(delivery_tag=method.delivery_tag)
             self.logger.info("[%s] ACK'd: %s", self.consumer_tag,
                              payload.get("order_id"))
+            info_log = json.dumps({
+                "order_id": payload.get("order_id", "N/A"),
+                "consumer": self.consumer_tag,
+                "level": "info",
+                "service": "consumer",
+                "message": f"Message processed successfully",
+            }).encode()
+            
+            channel.basic_publish(exchange="logs.info", routing_key="info",
+                                    body=info_log, properties=build_properties())
+           
         except Exception as exc:
             self.logger.error("[%s] Error: %s", self.consumer_tag, exc)
-            headers = getattr(properties, "headers", None) or {}
-            if should_dead_letter(headers):
-                self.logger.warning("[%s] Max retries — dead-lettering.", self.consumer_tag)
-                channel.basic_nack(delivery_tag=method.delivery_tag, requeue=False)
-            else:
-                channel.basic_nack(delivery_tag=method.delivery_tag, requeue=True)
+            error_log = json.dumps({
+                "order_id": payload.get("order_id", "N/A") if 'payload' in locals() else "N/A",
+                "consumer": self.consumer_tag,
+                "level": "error",
+                "service": "consumer",
+                "message": str(exc),
+            }).encode()
+        
+            channel.basic_publish(exchange="logs.error", routing_key="error",
+                                    body=error_log, properties=build_properties())
+            channel.basic_nack(delivery_tag=method.delivery_tag, requeue=False)
 
     def run(self) -> None:
         self.logger.info("[%s] Starting on queue: %s", self.consumer_tag, self.queue_name)

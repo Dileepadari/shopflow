@@ -32,7 +32,24 @@ def _declare_dlx(ch):
     ch.exchange_declare(exchange=settings.dlx_exchange, exchange_type="direct", durable=True)
     ch.queue_declare(queue="dead_letter_queue", durable=True,
                      arguments={"x-queue-type": "quorum"})
-    ch.queue_bind(queue="dead_letter_queue", exchange=settings.dlx_exchange, routing_key="#")
+    for queue in [
+        "payment_queue",
+        "inventory_queue",
+        "email_queue",
+        "sms_queue",
+        "push_queue",
+        "log_error_queue",
+        "log_info_queue",
+        "order_us_queue",
+        "order_eu_queue",
+        "order_xml_queue",
+        "notif_audit_queue",
+    ]:
+        ch.queue_bind(
+            queue="dead_letter_queue",
+            exchange=settings.dlx_exchange,
+            routing_key=f"{settings.dlx_routing_key_prefix}.{queue}",
+        )
 
 def _declare_work_queues(ch):
     for q in ["payment_queue", "inventory_queue"]:
@@ -45,15 +62,17 @@ def _declare_fanout(ch):
         ch.queue_bind(queue=q, exchange="order.events", routing_key="")
 
 def _declare_direct(ch):
-    ch.exchange_declare(exchange="logs.direct", exchange_type="direct", durable=True)
+    ch.exchange_declare(exchange="logs.error", exchange_type="direct", durable=True)
     ch.queue_declare(queue="log_error_queue", durable=True,
                      arguments=_quorum_args("log_error_queue"))
-    ch.queue_bind(queue="log_error_queue", exchange="logs.direct", routing_key="error")
-    ch.queue_bind(queue="log_error_queue", exchange="logs.direct", routing_key="warning")
+    ch.queue_bind(queue="log_error_queue", exchange="logs.error", routing_key="error")
+    ch.queue_bind(queue="log_error_queue", exchange="logs.error", routing_key="warning")
+
+    ch.exchange_declare(exchange="logs.info", exchange_type="direct", durable=True)
     ch.queue_declare(queue="log_info_queue", durable=True,
                      arguments=_quorum_args("log_info_queue"))
-    ch.queue_bind(queue="log_info_queue", exchange="logs.direct", routing_key="info")
-    ch.queue_bind(queue="log_info_queue", exchange="logs.direct", routing_key="debug")
+    ch.queue_bind(queue="log_info_queue", exchange="logs.info", routing_key="info")
+    ch.queue_bind(queue="log_info_queue", exchange="logs.info", routing_key="debug")
 
 def _declare_topic(ch):
     ch.exchange_declare(exchange="notifications.topic", exchange_type="topic", durable=True)
