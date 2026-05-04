@@ -15,7 +15,7 @@ A production-grade, fully Dockerized e-commerce order processing system using Ra
 ```bash
 # Clone and start
 git clone https://github.com/Dileepadari/shopflow.git
-cd shopflow/shopflow
+cd shopflow
 docker compose up --build
 ```
 

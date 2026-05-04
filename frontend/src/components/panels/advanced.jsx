@@ -219,6 +219,8 @@ export function OverviewPanel({ overview = {}, messageHistory = [], loading, err
  */
 export function OrderSenderPanel() {
   const [orderCount, setOrderCount] = useState(1)
+  const [region, setRegion] = useState('US')
+  const [format, setFormat] = useState('json')
   const [customerId, setCustomerId] = useState('CUST-001')
   const [amount, setAmount] = useState('99.99')
   const [items, setItems] = useState('[{"product_id": "SKU-001", "quantity": 1, "price": 99.99}]')
@@ -334,11 +336,10 @@ export function OrderSenderPanel() {
 
       for (let i = 0; i < orderCount; i++) {
         const orderPayload = {
-          order_id: `ORD-${Date.now()}-${i}`,
-          customer_id: customerId.trim(),
+          region: region,
+          format: format,
           amount: parseFloat(amount),
-          items: itemsArray,
-          timestamp: new Date().toISOString(),
+          currency: 'USD',
         }
 
         try {
@@ -361,7 +362,7 @@ export function OrderSenderPanel() {
 
       setSuccessCount(sent)
       if (errors.length === 0) {
-        setMessage(`✓ Successfully sent all ${sent}/${orderCount} order(s)`)
+        setMessage(`✓ Successfully sent ${sent}/${orderCount} order(s) to ${region} region as ${format.toUpperCase()}`)
       } else {
         setMessage(
           `⚠ Sent ${sent}/${orderCount} orders. Errors: ${errors.slice(0, 3).join(', ')}${
@@ -388,6 +389,30 @@ export function OrderSenderPanel() {
       <div className="space-y-3">
         <div className="grid grid-cols-2 gap-3">
           <div>
+            <label className="text-xs font-semibold text-gray-400 block mb-1">🌍 Region</label>
+            <select
+              value={region}
+              onChange={(e) => setRegion(e.target.value)}
+              className="w-full px-2 py-2 bg-gray-800 border border-orange-600 rounded text-sm text-white font-semibold"
+            >
+              <option value="US">🇺🇸 US Region</option>
+              <option value="EU">🇪🇺 EU Region</option>
+            </select>
+          </div>
+
+          <div>
+            <label className="text-xs font-semibold text-gray-400 block mb-1">📋 Format</label>
+            <select
+              value={format}
+              onChange={(e) => setFormat(e.target.value)}
+              className="w-full px-2 py-2 bg-gray-800 border border-orange-600 rounded text-sm text-white font-semibold"
+            >
+              <option value="json">JSON</option>
+              <option value="xml">XML Legacy</option>
+            </select>
+          </div>
+
+          <div>
             <label className="text-xs font-semibold text-gray-400 block mb-1">Number of Orders</label>
             <input
               type="number"
@@ -395,17 +420,6 @@ export function OrderSenderPanel() {
               max="100"
               value={orderCount}
               onChange={(e) => setOrderCount(Math.max(1, parseInt(e.target.value) || 1))}
-              className="w-full px-2 py-2 bg-gray-800 border border-gray-700 rounded text-sm text-white"
-            />
-          </div>
-
-          <div>
-            <label className="text-xs font-semibold text-gray-400 block mb-1">Customer ID</label>
-            <input
-              type="text"
-              value={customerId}
-              onChange={(e) => setCustomerId(e.target.value)}
-              placeholder="CUST-001"
               className="w-full px-2 py-2 bg-gray-800 border border-gray-700 rounded text-sm text-white"
             />
           </div>
@@ -423,27 +437,46 @@ export function OrderSenderPanel() {
           </div>
 
           <div>
+            <label className="text-xs font-semibold text-gray-400 block mb-1">Customer ID</label>
+            <input
+              type="text"
+              value={customerId}
+              onChange={(e) => setCustomerId(e.target.value)}
+              placeholder="CUST-001"
+              className="w-full px-2 py-2 bg-gray-800 border border-gray-700 rounded text-sm text-white"
+            />
+          </div>
+
+          <div>
             <label className="text-xs font-semibold text-gray-400 block mb-1">
-              <Badge variant="warning">Template</Badge>
+              <Badge variant="warning">Quick Template</Badge>
             </label>
             <select
               onChange={(e) => {
                 if (e.target.value === 'eu') {
+                  setRegion('EU')
+                  setFormat('json')
                   setCustomerId('CUST-EU-001')
-                  setItems('[{"product_id": "SKU-EU-001", "quantity": 2, "price": 49.99}]')
+                  setAmount('149.99')
                 } else if (e.target.value === 'us') {
+                  setRegion('US')
+                  setFormat('json')
                   setCustomerId('CUST-US-001')
-                  setItems('[{"product_id": "SKU-US-001", "quantity": 1, "price": 99.99}]')
-                } else {
-                  setCustomerId('CUST-001')
-                  setItems('[{"product_id": "SKU-001", "quantity": 1, "price": 99.99}]')
+                  setAmount('99.99')
+                } else if (e.target.value === 'xml') {
+                  setRegion('US')
+                  setFormat('xml')
+                  setCustomerId('CUST-XML-001')
+                  setAmount('199.99')
                 }
               }}
+              defaultValue=""
               className="w-full px-2 py-2 bg-gray-800 border border-gray-700 rounded text-sm text-white"
             >
-              <option value="">Choose template</option>
-              <option value="us">US Region</option>
-              <option value="eu">EU Region</option>
+              <option value="">Select template...</option>
+              <option value="us">📦 US (JSON)</option>
+              <option value="eu">📦 EU (JSON)</option>
+              <option value="xml">📦 XML Legacy</option>
             </select>
           </div>
         </div>
