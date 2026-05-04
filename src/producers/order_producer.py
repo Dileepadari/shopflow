@@ -23,10 +23,27 @@ def publish_order(region: str = "US", fmt: str = "json",
     body = encode(payload)
     order_id = payload["order_id"]
     try:
-        # FR-01: Work queues (default exchange)
-        for q in ["payment_queue", "inventory_queue"]:
-            channel.basic_publish(exchange="", routing_key=q, body=body,
+
+        try:
+            channel.basic_publish(exchange="", routing_key="payment_queue", body=body,
                                 properties=build_properties())
+            logger.info("Message sent to payment_queue for order %s", order_id)
+            payment_success = True
+        except Exception as pay_exc:
+            logger.error("Failed to send to payment_queue for order %s: %s", order_id, pay_exc)
+            payment_success = False
+        
+        # Only if payment succeeded, send to inventory_queue
+        if payment_success:
+            try:
+                channel.basic_publish(exchange="", routing_key="inventory_queue", body=body,
+                                    properties=build_properties())
+                logger.info("Message sent to inventory_queue for order %s", order_id)
+            except Exception as inv_exc:
+                logger.error("Failed to send to inventory_queue for order %s: %s", order_id, inv_exc)
+                raise
+        else:
+            raise Exception(f"Cannot proceed to inventory_queue: payment_queue send failed for order {order_id}")
 
         # FR-02: Fanout
         channel.basic_publish(exchange="order.events", routing_key="", body=body,
