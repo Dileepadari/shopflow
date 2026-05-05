@@ -1,5 +1,6 @@
 import React, { useState } from 'react'
 import clsx from 'clsx'
+import { Globe, FileText, Package, Zap, Megaphone, AlertTriangle, AlertCircle, Info } from 'lucide-react'
 import { Card, Button, LoadingSpinner, ErrorMessage, Stat, Badge } from '../ui/index'
 import { MessageRateChart } from '../charts/index'
 
@@ -18,19 +19,30 @@ export function DLXAuditLogPanel({ dlxHistory = {}, loading, error }) {
 
   return (
     <Card>
+      <div className="mb-4">
+        <h2 className="text-lg font-bold text-white mb-2">DLX Audit Log</h2>
+        <p className="text-xs text-slate-400">Dead-letter messages that failed processing</p>
+      </div>
+      
+      {/* DLX Legend */}
+      <div className="mb-4 p-2 bg-slate-800 rounded border border-slate-700 text-xs text-slate-300 space-y-1">
+        <p><span className="text-red-400 font-semibold">Dead Letter:</span> Message rejected after max retries</p>
+        <p><span className="text-slate-400">Reason:</span> Why the message was rejected (TTL, rejected, etc)</p>
+        <p><span className="text-slate-400">Retries:</span> Number of times processing was attempted</p>
+      </div>
+
       <div className="flex items-center justify-between mb-4">
-        <h2 className="text-lg font-bold text-white">DLX Audit Log</h2>
-        <Stat label="Dead Letters" value={dlxCount} />
+        <Stat label="Dead Letters" value={dlxCount} description="Total failed messages" />
       </div>
 
       {records.length === 0 ? (
-        <p className="text-gray-500 text-sm">No dead-lettered messages</p>
+        <p className="text-slate-500 text-sm">No dead-lettered messages</p>
       ) : (
-        <div className="space-y-2 max-h-96 overflow-y-auto">
+        <div className="flex flex-wrap gap-2">
           {records.map((msg, i) => (
             <div
               key={i}
-              className="border border-gray-700 rounded p-2 bg-gray-800 cursor-pointer hover:bg-gray-750 transition"
+              className="border border-slate-700 rounded p-2 bg-slate-800 cursor-pointer hover:bg-slate-750 transition flex-1 min-w-64 sm:min-w-96"
               onClick={() => setExpanded(expanded === i ? null : i)}
             >
               <div className="flex items-center justify-between">
@@ -38,15 +50,15 @@ export function DLXAuditLogPanel({ dlxHistory = {}, loading, error }) {
                   <p className="text-xs font-semibold text-red-400">
                     {msg.original_queue || 'unknown'} → DLX
                   </p>
-                  <p className="text-xs text-gray-400 mt-1">
+                  <p className="text-xs text-slate-400 mt-1">
                     Reason: {msg.death_reason || 'Unknown'}
                   </p>
                 </div>
-                <span className="text-xs text-gray-500">{msg.retry_count || 0} retries</span>
+                <span className="text-xs text-slate-500">{msg.retry_count || 0} retries</span>
               </div>
 
               {expanded === i && msg.body && (
-                <pre className="text-xs bg-black rounded mt-2 p-2 overflow-x-auto text-gray-300">
+                <pre className="text-xs bg-black rounded mt-2 p-2 overflow-x-auto text-slate-300">
                   {typeof msg.body === 'string' ? msg.body : JSON.stringify(msg.body, null, 2)}
                 </pre>
               )}
@@ -66,6 +78,7 @@ export function MessagePublisherPanel({ exchanges = [] }) {
   const [exchange, setExchange] = useState('')
   const [routingKey, setRoutingKey] = useState('')
   const [body, setBody] = useState('{}')
+  const [headers, setHeaders] = useState({})
   const [publishing, setPublishing] = useState(false)
   const [message, setMessage] = useState('')
 
@@ -76,15 +89,15 @@ export function MessagePublisherPanel({ exchanges = [] }) {
       body: '{}',
       routingKeyHint: '',
       responseType: '❓ Unknown',
-      description: 'Select an exchange to see templates',
+      description: 'Select an exchange to see templates and routing information',
       samples: []
     },
     'default': {
       name: 'Default Exchange (Work Queues)',
       body: '{"order_id": "ORD-001", "amount": 99.99, "customer_email": "customer@example.com", "items": [{"sku": "SKU-001", "qty": 1}]}',
       routingKeyHint: 'payment_queue or inventory_queue',
-      responseType: '✓ Visible - Logs in console',
-      description: 'Work queue for payment & inventory processing',
+      responseType: '✓ Processed by payment/inventory consumers',
+      description: 'Routes to specific queues by name. Consumers: payment_consumer, inventory_consumer',
       samples: [
         {
           label: 'Payment Order',
@@ -102,22 +115,22 @@ export function MessagePublisherPanel({ exchanges = [] }) {
       name: 'Fanout: order.events',
       body: '{"order_id": "ORD-FAN-001", "customer_email": "customer@example.com", "customer_phone": "+1-555-0100", "amount": 99.99}',
       routingKeyHint: '(ignored - broadcasts to all)',
-      responseType: '✓ Visible - Email, SMS, Push logs',
-      description: 'Broadcasts order events to all listeners (email, SMS, push)',
+      responseType: '✓ Broadcasts to email, sms, push consumers',
+      description: 'Broadcasts to all listeners: email_queue, sms_queue, push_queue. Consumers: email_consumer, sms_consumer, push_consumer',
       samples: [
         {
-          label: 'New Order Event',
+          label: 'Order Notification',
           key: '',
-          body: '{"order_id": "ORD-NEW-001", "customer_name": "John Doe", "customer_email": "john@example.com", "customer_phone": "+1-555-0199", "amount": 299.99, "items": [{"sku": "GAMING-PC", "qty": 1, "price": 299.99}], "event": "order.created"}'
+          body: '{"order_id": "ORD-EVT-001", "customer_name": "John Doe", "customer_email": "john@example.com", "customer_phone": "+1-555-0199", "amount": 299.99, "items": [{"sku": "GAMING-PC", "qty": 1, "price": 299.99}], "event": "order.created"}'
         }
       ]
     },
-    'logs.direct': {
-      name: 'Direct: logs.direct',
+    'logs.error': {
+      name: 'Direct: logs.error',
       body: '{"level": "error", "service": "test_publisher", "message": "Test error message", "timestamp": "2025-05-04T10:00:00Z"}',
-      routingKeyHint: 'error, warning, info, or debug',
-      responseType: 'Check /app/logs/error_logs.jsonl',
-      description: 'Routes logs by severity. Writes to files, not visible on dashboard.',
+      routingKeyHint: 'error or warning',
+      responseType: '✓ Logged to log_error_queue',
+      description: 'Routes errors/warnings to log_error_queue. Consumer: log_error_consumer',
       samples: [
         {
           label: 'Error Log',
@@ -128,20 +141,34 @@ export function MessagePublisherPanel({ exchanges = [] }) {
           label: 'Warning Log',
           key: 'warning',
           body: '{"level": "warning", "service": "inventory_service", "message": "Low stock for SKU-001", "sku": "SKU-001", "remaining_qty": 2}'
-        },
+        }
+      ]
+    },
+    'logs.info': {
+      name: 'Direct: logs.info',
+      body: '{"level": "info", "service": "test_publisher", "message": "Test info message", "timestamp": "2025-05-04T10:00:00Z"}',
+      routingKeyHint: 'info or debug',
+      responseType: '✓ Logged to log_info_queue',
+      description: 'Routes info/debug messages to log_info_queue. Consumer: log_info_consumer',
+      samples: [
         {
           label: 'Info Log',
           key: 'info',
           body: '{"level": "info", "service": "order_producer", "message": "Order published successfully", "order_id": "ORD-456"}'
+        },
+        {
+          label: 'Debug Log',
+          key: 'debug',
+          body: '{"level": "debug", "service": "payment_service", "message": "Payment validation passed", "order_id": "ORD-789"}'
         }
       ]
     },
     'notifications.topic': {
       name: 'Topic: notifications.topic',
-      body: '{"order_id": "ORD-NOTIF-001", "customer_email": "customer@example.com", "customer_phone": "+1-555-0100", "notification_type": "email"}',
+      body: '{"order_id": "ORD-NOTIF-001", "customer_email": "customer@example.com", "customer_phone": "+1-555-0100"}',
       routingKeyHint: 'notification.email.* or notification.sms.urgent',
-      responseType: 'Check /app/logs/notification_audit.jsonl',
-      description: 'Pattern-based routing. Notifications sent but not visible on UI.',
+      responseType: '✓ Routed to notif_email_queue, notif_sms_queue, notif_audit_queue',
+      description: 'Pattern-based routing to notification queues. Consumers: notif_email_consumer, notif_sms_consumer, notif_audit_consumer',
       samples: [
         {
           label: 'Email Normal',
@@ -161,30 +188,30 @@ export function MessagePublisherPanel({ exchanges = [] }) {
       ]
     },
     'orders.headers': {
-      name: 'Headers: orders.headers (Region Routing)',
+      name: 'Headers: orders.headers',
       body: '{"order_id": "ORD-HDR-001", "amount": 99.99}',
       routingKeyHint: '(ignored - uses headers)',
-      responseType: 'Region-specific processing',
-      description: 'Routes based on message headers (region, format). EU/US processors handle silently.',
+      responseType: '✓ Routed to eu_queue, us_queue, or xml_legacy_queue',
+      description: 'Routes based on region & format headers to eu_queue, us_queue, xml_legacy_queue. Consumers: eu_processor, us_processor, xml_legacy_consumer',
       samples: [
         {
           label: 'EU JSON Order',
           key: '',
           body: '{"order_id": "ORD-EU-001", "customer_email": "customer@example.eu", "amount": 149.99, "items": [{"sku": "EU-PROD-001", "qty": 1}]}',
-          headers: '{"region": "EU", "format": "json"}'
+          headers: { region: 'EU', format: 'json' }
         },
         {
           label: 'US JSON Order',
           key: '',
           body: '{"order_id": "ORD-US-001", "customer_email": "customer@example.com", "amount": 99.99, "items": [{"sku": "US-PROD-001", "qty": 1}]}',
-          headers: '{"region": "US", "format": "json"}'
+          headers: { region: 'US', format: 'json' }
         },
-        {
-          label: 'XML Legacy Order',
-          key: '',
-          body: '<?xml version="1.0"?><order><id>ORD-XML-001</id><amount>199.99</amount></order>',
-          headers: '{"format": "xml"}'
-        }
+        // {
+        //   label: 'XML Legacy Order',
+        //   key: '',
+        //   body: '<?xml version="1.0"?><order><id>ORD-XML-001</id><amount>199.99</amount></order>',
+        //   headers: { format: 'xml' }
+        // }
       ]
     },
     'dead.letter.exchange': {
@@ -208,6 +235,7 @@ export function MessagePublisherPanel({ exchanges = [] }) {
   const handleExchangeChange = (e) => {
     const newExchange = e.target.value
     setExchange(newExchange)
+    setHeaders({})
     const template = exchangeTemplates[newExchange]
     if (template) {
       setBody(template.body)
@@ -218,6 +246,11 @@ export function MessagePublisherPanel({ exchanges = [] }) {
   const handleSampleClick = (sample) => {
     setBody(sample.body)
     setRoutingKey(sample.key)
+    if (sample.headers) {
+      setHeaders(typeof sample.headers === 'string' ? JSON.parse(sample.headers) : sample.headers)
+    } else {
+      setHeaders({})
+    }
   }
 
   const handlePublish = async () => {
@@ -230,14 +263,25 @@ export function MessagePublisherPanel({ exchanges = [] }) {
     try {
       setPublishing(true)
       const BASE = import.meta.env.VITE_CHAOS_API_URL || 'http://localhost:8080'
+      
+      // Map 'default' to empty string for AMQP default exchange
+      const actualExchange = exchange === 'default' ? '' : exchange
+      
+      const publishPayload = {
+        exchange: actualExchange,
+        routing_key: routingKey,
+        body: JSON.parse(body),
+      }
+      
+      // Include headers if present (for headers exchange routing)
+      if (Object.keys(headers).length > 0) {
+        publishPayload.headers = headers
+      }
+      
       const response = await fetch(`${BASE}/chaos/message/publish`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          exchange,
-          routing_key: routingKey,
-          body: JSON.parse(body),
-        }),
+        body: JSON.stringify(publishPayload),
       })
       const result = await response.json()
       setMessage(`✓ Message published! Response: ${selectedTemplate.responseType}`)
@@ -253,39 +297,40 @@ export function MessagePublisherPanel({ exchanges = [] }) {
     <Card>
       <div className="mb-4">
         <h2 className="text-lg font-bold text-white">Message Publisher</h2>
-        <p className="text-xs text-gray-500 mt-1">Test messages with exchange-specific templates. Each exchange has different message format and visibility.</p>
+        <p className="text-xs text-slate-500 mt-1">Test messages with exchange-specific templates. Each exchange has different message format and visibility.</p>
       </div>
 
       <div className="space-y-3">
         <div>
-          <label className="text-xs font-semibold text-gray-400 block mb-1">📨 Exchange</label>
+          <label className="text-xs font-semibold text-slate-400 block mb-1">📨 Exchange</label>
           <select
             value={exchange}
             onChange={handleExchangeChange}
-            className="w-full px-2 py-2 bg-gray-800 border border-orange-600 rounded text-sm text-white font-semibold"
+            className="w-full px-2 py-2 bg-slate-800 border border-teal-600 rounded text-xs sm:text-sm text-white font-semibold"
           >
             <option value="">Select exchange...</option>
             <optgroup label="Active Exchanges">
-              <option value="default">🔄 (default) - Work Queues</option>
-              <option value="order.events">📢 order.events - Fanout</option>
-              <option value="logs.direct">📋 logs.direct - Direct (Severity)</option>
-              <option value="notifications.topic">🔔 notifications.topic - Topic (Pattern)</option>
-              <option value="orders.headers">🗺️ orders.headers - Headers (Region)</option>
+              <option value="default">Work Queues</option>
+              <option value="order.events">Fanout - order.events</option>
+              <option value="logs.error">Direct - logs.error</option>
+              <option value="logs.info">Direct - logs.info</option>
+              <option value="notifications.topic">Topic - notifications.topic</option>
+              <option value="orders.headers">Headers - orders.headers</option>
             </optgroup>
             <optgroup label="System Exchanges">
-              <option value="dead.letter.exchange">⚠️ dead.letter.exchange - DLX (Passive)</option>
+              <option value="dead.letter.exchange">Dead Letter Exchange (DLX)</option>
             </optgroup>
           </select>
         </div>
 
         {exchange && (
-          <div className="bg-gray-900 border border-gray-700 rounded p-3 mb-3">
-            <p className="text-xs text-gray-300 mb-1"><strong>Type:</strong> {selectedTemplate.name}</p>
-            <p className="text-xs text-gray-400 mb-2"><strong>Description:</strong> {selectedTemplate.description}</p>
+          <div className="bg-slate-800 border border-slate-700 rounded p-3 mb-3">
+            <p className="text-xs text-slate-300 mb-1"><strong>Type:</strong> {selectedTemplate.name}</p>
+            <p className="text-xs text-slate-400 mb-2"><strong>Description:</strong> {selectedTemplate.description}</p>
             <div className={clsx('text-xs font-semibold p-2 rounded', 
-              selectedTemplate.responseType.includes('Visible') ? 'bg-green-900 text-green-300' :
-              selectedTemplate.responseType.includes('No UI') ? 'bg-yellow-900 text-yellow-300' :
-              'bg-red-900 text-red-300'
+              selectedTemplate.responseType.includes('✓') ? 'bg-emerald-900 text-emerald-300' :
+              selectedTemplate.responseType.includes('Passive') ? 'bg-amber-900 text-amber-300' :
+              'bg-slate-800 text-slate-300'
             )}>
               Response: {selectedTemplate.responseType}
             </div>
@@ -293,27 +338,27 @@ export function MessagePublisherPanel({ exchanges = [] }) {
         )}
 
         <div>
-          <label className="text-xs font-semibold text-gray-400 block mb-1">Routing Key {selectedTemplate.routingKeyHint && `(e.g., ${selectedTemplate.routingKeyHint})`}</label>
+          <label className="text-xs font-semibold text-slate-400 block mb-1">Routing Key {selectedTemplate.routingKeyHint && `(e.g., ${selectedTemplate.routingKeyHint})`}</label>
           <input
             type="text"
             value={routingKey}
             onChange={(e) => setRoutingKey(e.target.value)}
             placeholder={selectedTemplate.routingKeyHint || 'Leave empty if not needed'}
-            className="w-full px-2 py-2 bg-gray-800 border border-gray-700 rounded text-sm text-white font-mono"
+            className="w-full px-2 py-2 bg-slate-800 border border-slate-700 rounded text-xs sm:text-sm text-white font-mono"
           />
         </div>
 
         <div>
-          <div className="flex items-center justify-between mb-1">
-            <label className="text-xs font-semibold text-gray-400">Message Body (JSON)</label>
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 sm:gap-0 mb-1">
+            <label className="text-xs font-semibold text-slate-400">Message Body (JSON)</label>
             {selectedTemplate.samples && selectedTemplate.samples.length > 0 && (
-              <div className="text-xs space-y-1">
-                <span className="text-gray-500 mr-2">Quick Samples:</span>
+              <div className="text-xs space-y-1 flex flex-wrap gap-1">
+                <span className="text-slate-500">Samples:</span>
                 {selectedTemplate.samples.map((sample, idx) => (
                   <button
                     key={idx}
                     onClick={() => handleSampleClick(sample)}
-                    className="inline-block ml-1 px-2 py-1 bg-purple-800 hover:bg-purple-700 rounded text-purple-200 text-xs transition"
+                    className="px-2 py-1 bg-purple-800 hover:bg-purple-700 rounded text-purple-200 text-xs transition whitespace-nowrap"
                   >
                     {sample.label}
                   </button>
@@ -325,9 +370,23 @@ export function MessagePublisherPanel({ exchanges = [] }) {
             value={body}
             onChange={(e) => setBody(e.target.value)}
             rows="5"
-            className="w-full px-2 py-2 bg-gray-800 border border-gray-700 rounded text-sm text-white font-mono text-xs"
+            className="w-full px-2 py-2 bg-slate-800 border border-slate-700 rounded text-sm text-white font-mono text-xs"
           />
         </div>
+
+        {Object.keys(headers).length > 0 && (
+          <div className="bg-slate-800 border border-slate-700 rounded p-2">
+            <p className="text-xs font-semibold text-slate-400 mb-2">📋 Headers (Auto-populated)</p>
+            <div className="text-xs text-slate-300 font-mono">
+              {Object.entries(headers).map(([key, value]) => (
+                <div key={key} className="flex gap-2">
+                  <span className="text-slate-500">{key}:</span>
+                  <span className="text-teal-300">{String(value)}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
 
         <Button onClick={handlePublish} disabled={!exchange || exchange === 'dead.letter.exchange' || publishing}>
           {publishing ? 'Publishing...' : `Publish to ${exchange.split('.')[-1] || 'Exchange'}`}
@@ -335,9 +394,9 @@ export function MessagePublisherPanel({ exchanges = [] }) {
 
         {message && (
           <div className={clsx('text-xs p-2 rounded', 
-            message.includes('Cannot publish') ? 'bg-red-900 text-red-200' :
+            message.includes('Cannot publish') ? 'bg-amber-900 text-amber-200' :
             message.includes('Error') ? 'bg-red-900 text-red-300' : 
-            'bg-green-900 text-green-300'
+            'bg-emerald-900 text-emerald-300'
           )}>
             {message}
           </div>
@@ -363,19 +422,30 @@ export function ConnectionMapPanel({ connections = [], loading, error }) {
 
   return (
     <Card>
-      <h2 className="text-lg font-bold text-white mb-4">Connections ({connections.length})</h2>
+      <div className="mb-4">
+        <h2 className="text-lg font-bold text-white mb-2">Connections ({connections.length})</h2>
+        <p className="text-xs text-slate-400">Active AMQP connections to the RabbitMQ broker</p>
+      </div>
+      
+      {/* Connection Legend */}
+      <div className="mb-4 p-2 bg-slate-800 rounded border border-slate-700 text-xs text-slate-300 space-y-1">
+        <p><span className="text-slate-400">Connection:</span> Network link between client and broker</p>
+        <p><span className="text-slate-400">Channels:</span> Logical communication channels within a connection</p>
+        <p className="text-slate-500 text-xs">Multiple channels allow multiple operations over one connection</p>
+      </div>
+
       <div className="space-y-3">
         {Object.entries(grouped).map(([node, conns]) => (
-          <div key={node} className="border border-gray-700 rounded p-2 bg-gray-800">
-            <p className="text-xs font-semibold text-orange-400 mb-2">{node}</p>
+          <div key={node} className="border border-slate-700 rounded p-2 bg-slate-800">
+            <p className="text-xs font-semibold text-teal-400 mb-2">{node}</p>
             <div className="space-y-1">
               {conns.map((conn) => (
-                <div key={conn.name} className="text-xs text-gray-400 ml-2">
+                <div key={conn.name} className="text-xs text-slate-400 ml-2">
                   <p>
-                    <span className="text-gray-500">Client:</span> {conn.client_properties?.connection_name || conn.name}
+                    <span className="text-slate-500">Client:</span> {conn.client_properties?.connection_name || conn.name}
                   </p>
                   <p>
-                    <span className="text-gray-500">Channels:</span> {conn.channels_count}
+                    <span className="text-slate-500">Channels:</span> {conn.channels_count}
                   </p>
                 </div>
               ))}
@@ -394,17 +464,84 @@ export function OverviewPanel({ overview = {}, messageHistory = [], loading, err
   if (loading) return <Card><LoadingSpinner /></Card>
   if (error) return <Card><ErrorMessage message={error} /></Card>
 
+  const queueStats = overview.queue_totals || {}
+  const objectStats = overview.object_totals || {}
+
   return (
     <Card>
-      <h2 className="text-lg font-bold text-white mb-4">System Overview</h2>
+      <h2 className="text-lg font-bold text-white mb-6">System Overview</h2>
 
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
-        <Stat label="Messages Ready" value={overview.queue_totals?.messages_ready || 0} />
-        <Stat label="Consumers" value={overview.queue_totals?.consumers || 0} />
-        <Stat label="Channels" value={overview.object_totals?.channels || 0} />
-        <Stat label="Connections" value={overview.object_totals?.connections || 0} />
+      {/* Core Metrics Row */}
+      <div className="mb-6">
+        <h3 className="text-xs font-semibold text-slate-400 uppercase mb-3 tracking-wider">Core Metrics</h3>
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2 sm:gap-3">
+          <div className="bg-gradient-to-br from-indigo-900 to-indigo-800 rounded p-3 sm:p-4 border border-indigo-700 relative">
+            <Stat 
+              label="Consumers" 
+              value={objectStats.consumers || 0}
+              description="Active message consumers listening to queues"
+            />
+          </div>
+          <div className="bg-gradient-to-br from-emerald-900 to-emerald-800 rounded p-3 sm:p-4 border border-emerald-700 relative">
+            <Stat 
+              label="Messages Ready" 
+              value={queueStats.messages_ready || 0}
+              description="Messages waiting in queues for consumer pickup"
+            />
+          </div>
+          <div className="bg-gradient-to-br from-teal-900 to-teal-800 rounded p-3 sm:p-4 border border-teal-700 relative">
+            <Stat 
+              label="Total Messages" 
+              value={queueStats.messages || 0}
+              description="All messages: ready + unacknowledged"
+            />
+          </div>
+          <div className="bg-gradient-to-br from-amber-900 to-amber-800 rounded p-3 sm:p-4 border border-amber-700 relative">
+            <Stat 
+              label="Unacknowledged" 
+              value={queueStats.messages_unacknowledged || 0}
+              description="Messages being processed by consumers"
+            />
+          </div>
+        </div>
       </div>
 
+      {/* Infrastructure Row */}
+      <div className="mb-6">
+        <h3 className="text-xs font-semibold text-slate-400 uppercase mb-3 tracking-wider">Infrastructure</h3>
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2 sm:gap-3">
+          <div className="bg-gradient-to-br from-red-900 to-red-800 rounded p-3 sm:p-4 border border-red-700 relative">
+            <Stat 
+              label="Channels" 
+              value={objectStats.channels || 0}
+              description="AMQP channels for communication"
+            />
+          </div>
+          <div className="bg-gradient-to-br from-orange-900 to-orange-800 rounded p-3 sm:p-4 border border-orange-700 relative">
+            <Stat 
+              label="Connections" 
+              value={objectStats.connections || 0}
+              description="Active AMQP connections to broker"
+            />
+          </div>
+          <div className="bg-gradient-to-br from-violet-900 to-violet-800 rounded p-3 sm:p-4 border border-violet-700 relative">
+            <Stat 
+              label="Exchanges" 
+              value={objectStats.exchanges || 0}
+              description="Message routing entities (direct, fanout, topic)"
+            />
+          </div>
+          <div className="bg-gradient-to-br from-rose-900 to-rose-800 rounded p-3 sm:p-4 border border-rose-700 relative">
+            <Stat 
+              label="Queues" 
+              value={objectStats.queues || 0}
+              description="Message storage entities"
+            />
+          </div>
+        </div>
+      </div>
+
+      {/* Chart Section */}
       <div>
         <h3 className="text-sm font-semibold text-white mb-3">Message Rate (30s window)</h3>
         <MessageRateChart data={messageHistory} />
@@ -581,30 +718,38 @@ export function OrderSenderPanel() {
   return (
     <Card>
       <div className="mb-4">
-        <h2 className="text-lg font-bold text-white">📦 Send Orders</h2>
-        <p className="text-xs text-gray-400 mt-1">Publish orders to the messaging system</p>
+        <h2 className="text-lg font-bold text-white flex items-center gap-2">
+          <Package className="w-5 h-5 text-teal-500" />
+          Send Orders
+        </h2>
+        <p className="text-xs text-slate-400 mt-1">Publish orders to the messaging system</p>
       </div>
 
       <div className="space-y-3">
-        <div className="grid grid-cols-2 gap-3">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 sm:gap-3">
           <div>
-            <label className="text-xs font-semibold text-gray-400 block mb-1">🌍 Region</label>
+            <label className="text-xs font-semibold text-slate-400 block mb-1 flex items-center gap-1">
+              <Globe className="w-4 h-4 text-teal-500" />
+              Region
+            </label>
             <select
               value={region}
               onChange={(e) => setRegion(e.target.value)}
-              className="w-full px-2 py-2 bg-gray-800 border border-orange-600 rounded text-sm text-white font-semibold"
-            >
-              <option value="US">🇺🇸 US Region</option>
-              <option value="EU">🇪🇺 EU Region</option>
+              className="w-full px-2 py-2 bg-slate-800 border border-teal-600 rounded text-xs sm:text-sm text-white font-semibold">
+              <option value="US">US Region</option>
+              <option value="EU">EU Region</option>
             </select>
           </div>
 
           <div>
-            <label className="text-xs font-semibold text-gray-400 block mb-1">📋 Format</label>
+            <label className="text-xs font-semibold text-slate-400 block mb-1 flex items-center gap-1">
+              <FileText className="w-4 h-4 text-teal-500" />
+              Format
+            </label>
             <select
               value={format}
               onChange={(e) => setFormat(e.target.value)}
-              className="w-full px-2 py-2 bg-gray-800 border border-orange-600 rounded text-sm text-white font-semibold"
+              className="w-full px-2 py-2 bg-slate-800 border border-teal-600 rounded text-xs sm:text-sm text-white font-semibold"
             >
               <option value="json">JSON</option>
               <option value="xml">XML Legacy</option>
@@ -612,42 +757,41 @@ export function OrderSenderPanel() {
           </div>
 
           <div>
-            <label className="text-xs font-semibold text-gray-400 block mb-1">Number of Orders</label>
+            <label className="text-xs font-semibold text-slate-400 block mb-1">Number of Orders</label>
             <input
               type="number"
               min="1"
               max="100"
               value={orderCount}
               onChange={(e) => setOrderCount(Math.max(1, parseInt(e.target.value) || 1))}
-              className="w-full px-2 py-2 bg-gray-800 border border-gray-700 rounded text-sm text-white"
+              className="w-full px-2 py-2 bg-slate-800 border border-slate-700 rounded text-xs sm:text-sm text-white"
             />
           </div>
 
           <div>
-            <label className="text-xs font-semibold text-gray-400 block mb-1">Order Amount ($)</label>
+            <label className="text-xs font-semibold text-slate-400 block mb-1">Amount (USD)</label>
             <input
-              type="number"
-              step="0.01"
+              type="text"
               value={amount}
               onChange={(e) => setAmount(e.target.value)}
               placeholder="99.99"
-              className="w-full px-2 py-2 bg-gray-800 border border-gray-700 rounded text-sm text-white"
+              className="w-full px-2 py-2 bg-slate-800 border border-slate-700 rounded text-xs sm:text-sm text-white"
             />
           </div>
 
           <div>
-            <label className="text-xs font-semibold text-gray-400 block mb-1">Customer ID</label>
+            <label className="text-xs font-semibold text-slate-400 block mb-1">Customer ID</label>
             <input
               type="text"
               value={customerId}
               onChange={(e) => setCustomerId(e.target.value)}
               placeholder="CUST-001"
-              className="w-full px-2 py-2 bg-gray-800 border border-gray-700 rounded text-sm text-white"
+              className="w-full px-2 py-2 bg-slate-800 border border-slate-700 rounded text-xs sm:text-sm text-white"
             />
           </div>
 
           <div>
-            <label className="text-xs font-semibold text-gray-400 block mb-1">
+            <label className="text-xs font-semibold text-slate-400 block mb-1">
               <Badge variant="warning">Quick Template</Badge>
             </label>
             <select
@@ -670,23 +814,23 @@ export function OrderSenderPanel() {
                 }
               }}
               defaultValue=""
-              className="w-full px-2 py-2 bg-gray-800 border border-gray-700 rounded text-sm text-white"
+              className="w-full px-2 py-2 bg-slate-800 border border-slate-700 rounded text-xs sm:text-sm text-white"
             >
               <option value="">Select template...</option>
-              <option value="us">📦 US (JSON)</option>
-              <option value="eu">📦 EU (JSON)</option>
-              <option value="xml">📦 XML Legacy</option>
+              <option value="us">US (JSON)</option>
+              <option value="eu">EU (JSON)</option>
+              <option value="xml">XML Legacy</option>
             </select>
           </div>
         </div>
 
         <div>
-          <label className="text-xs font-semibold text-gray-400 block mb-1">Items (JSON)</label>
+          <label className="text-xs font-semibold text-slate-400 block mb-1">Items (JSON)</label>
           <textarea
             value={items}
             onChange={(e) => setItems(e.target.value)}
             rows="3"
-            className="w-full px-2 py-2 bg-gray-800 border border-gray-700 rounded text-sm text-white font-mono text-xs"
+            className="w-full px-2 py-2 bg-slate-800 border border-slate-700 rounded text-sm text-white font-mono text-xs"
           />
         </div>
 
@@ -705,213 +849,9 @@ export function OrderSenderPanel() {
         </div>
 
         {message && (
-          <p className={clsx('text-xs', message.includes('Error') ? 'text-red-400' : 'text-green-400')}>
+          <p className={clsx('text-xs', message.includes('Error') ? 'text-red-400' : 'text-emerald-400')}>
             {message}
           </p>
-        )}
-      </div>
-    </Card>
-  )
-}
-
-/**
- * PhonePublisherPanel — Direct SMS/phone notification publisher.
- * Sends messages to notifications.topic exchange with routing keys.
- */
-export function PhonePublisherPanel() {
-  const [phoneNumber, setPhoneNumber] = useState('+1-555-0100')
-  const [messageType, setMessageType] = useState('alert')
-  const [customMessage, setCustomMessage] = useState('')
-  const [orderId, setOrderId] = useState('ORD-001')
-  const [publishing, setPublishing] = useState(false)
-  const [message, setMessage] = useState('')
-
-  const messageTemplates = {
-    alert: {
-      title: '🚨 Emergency Alert',
-      default: 'URGENT: Your payment failed. Please update payment method immediately.',
-      routingKey: 'notification.sms.urgent',
-      description: 'Critical alerts that need immediate attention'
-    },
-    delivery: {
-      title: '📦 Delivery Update',
-      default: 'Your order is out for delivery. Expected arrival: Today.',
-      routingKey: 'notification.sms.normal',
-      description: 'Delivery status notifications'
-    },
-    confirmation: {
-      title: '✅ Order Confirmation',
-      default: 'Order confirmed! Order ID: ORD-123. Thank you for your purchase.',
-      routingKey: 'notification.sms.normal',
-      description: 'Order confirmation messages'
-    },
-    reminder: {
-      title: '📣 Reminder',
-      default: 'Reminder: Your order is ready for pickup at store. Reference: ORD-123',
-      routingKey: 'notification.sms.normal',
-      description: 'Pickup and reminder notifications'
-    },
-    promotion: {
-      title: '🎉 Promotion',
-      default: 'Exclusive offer: Get 20% off on your next purchase. Use code: SAVE20',
-      routingKey: 'notification.sms.normal',
-      description: 'Promotional messages'
-    }
-  }
-
-  const validatePhoneNumber = (phone) => {
-    // Basic phone validation: at least + followed by digits
-    const phoneRegex = /^\+?\d{1,3}-?\d{3,14}$/
-    return phoneRegex.test(phone)
-  }
-
-  const handlePublish = async () => {
-    try {
-      // Validate phone number
-      if (!validatePhoneNumber(phoneNumber)) {
-        setMessage('❌ Invalid phone number format. Use format like: +1-555-0100')
-        setTimeout(() => setMessage(''), 5000)
-        return
-      }
-
-      // Validate message
-      const finalMessage = customMessage.trim() || messageTemplates[messageType].default
-      if (finalMessage.length === 0) {
-        setMessage('❌ Message cannot be empty')
-        setTimeout(() => setMessage(''), 5000)
-        return
-      }
-
-      if (finalMessage.length > 160) {
-        setMessage('⚠️ Message is longer than 160 chars (SMS standard)')
-        // Still allow sending
-      }
-
-      setPublishing(true)
-      const BASE = import.meta.env.VITE_CHAOS_API_URL || 'http://localhost:8080'
-      const response = await fetch(`${BASE}/chaos/message/publish`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          exchange: 'notifications.topic',
-          routing_key: messageTemplates[messageType].routingKey,
-          body: {
-            order_id: orderId || 'SMS-' + Date.now(),
-            customer_phone: phoneNumber,
-            message: finalMessage,
-            message_type: messageType,
-            timestamp: new Date().toISOString(),
-          },
-        }),
-      })
-      const result = await response.json()
-      setMessage(`✓ SMS published to ${phoneNumber}!`)
-      setTimeout(() => setMessage(''), 4000)
-    } catch (err) {
-      setMessage(`❌ Error: ${err.message}`)
-    } finally {
-      setPublishing(false)
-    }
-  }
-
-  const template = messageTemplates[messageType]
-
-  return (
-    <Card>
-      <div className="mb-4">
-        <h2 className="text-lg font-bold text-white">📱 Phone Publisher (SMS)</h2>
-        <p className="text-xs text-gray-500 mt-1">Send direct SMS notifications to customers via notifications.topic</p>
-      </div>
-
-      <div className="space-y-3">
-        <div>
-          <label className="text-xs font-semibold text-gray-400 block mb-1">📞 Phone Number</label>
-          <input
-            type="text"
-            value={phoneNumber}
-            onChange={(e) => setPhoneNumber(e.target.value)}
-            placeholder="+1-555-0100"
-            className="w-full px-2 py-2 bg-gray-800 border border-gray-700 rounded text-sm text-white font-mono"
-          />
-          <p className="text-xs text-gray-500 mt-1">Format: +1-555-0100 or similar</p>
-        </div>
-
-        <div>
-          <label className="text-xs font-semibold text-gray-400 block mb-1">📋 Order ID (Optional)</label>
-          <input
-            type="text"
-            value={orderId}
-            onChange={(e) => setOrderId(e.target.value)}
-            placeholder="ORD-001"
-            className="w-full px-2 py-2 bg-gray-800 border border-gray-700 rounded text-sm text-white font-mono"
-          />
-          <p className="text-xs text-gray-500 mt-1">Reference for tracking</p>
-        </div>
-
-        <div>
-          <label className="text-xs font-semibold text-gray-400 block mb-1">📢 Message Type</label>
-          <div className="grid grid-cols-2 gap-2">
-            {Object.entries(messageTemplates).map(([type, config]) => (
-              <button
-                key={type}
-                onClick={() => setMessageType(type)}
-                className={clsx(
-                  'px-2 py-2 rounded text-xs font-semibold transition',
-                  messageType === type
-                    ? 'bg-blue-700 text-white border border-blue-500'
-                    : 'bg-gray-800 text-gray-300 border border-gray-700 hover:bg-gray-700'
-                )}
-              >
-                {config.title}
-              </button>
-            ))}
-          </div>
-          <p className="text-xs text-gray-500 mt-2">{template.description}</p>
-          <p className="text-xs text-gray-500 mt-1">
-            <strong>Routing:</strong> {template.routingKey}
-          </p>
-        </div>
-
-        <div>
-          <div className="flex items-center justify-between mb-1">
-            <label className="text-xs font-semibold text-gray-400">Message (160 char limit)</label>
-            <span className={clsx(
-              'text-xs',
-              customMessage.length > 160 ? 'text-orange-400' : 'text-gray-500'
-            )}>
-              {customMessage.length}/160
-            </span>
-          </div>
-          <textarea
-            value={customMessage}
-            onChange={(e) => setCustomMessage(e.target.value)}
-            placeholder={template.default}
-            rows="3"
-            maxLength="160"
-            className="w-full px-2 py-2 bg-gray-800 border border-gray-700 rounded text-sm text-white font-mono text-xs"
-          />
-          <p className="text-xs text-gray-500 mt-1">Leave empty to use template default</p>
-        </div>
-
-        <div className="bg-gray-900 border border-gray-700 rounded p-2 mb-3">
-          <p className="text-xs text-gray-300"><strong>Preview:</strong></p>
-          <p className="text-xs text-gray-400 mt-1 break-words">
-            {customMessage.trim() || template.default}
-          </p>
-        </div>
-
-        <Button onClick={handlePublish} disabled={publishing}>
-          {publishing ? 'Sending...' : `Send SMS to ${phoneNumber}`}
-        </Button>
-
-        {message && (
-          <div className={clsx('text-xs p-2 rounded',
-            message.includes('Error') ? 'bg-red-900 text-red-200' :
-            message.includes('⚠️') ? 'bg-yellow-900 text-yellow-200' :
-            'bg-green-900 text-green-300'
-          )}>
-            {message}
-          </div>
         )}
       </div>
     </Card>

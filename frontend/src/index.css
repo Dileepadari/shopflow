@@ -8,4 +8,8 @@
   .badge-green  { @apply px-2 py-0.5 rounded text-xs bg-green-900 text-green-300; }
   .badge-red    { @apply px-2 py-0.5 rounded text-xs bg-red-900 text-red-300; }
   .badge-yellow { @apply px-2 py-0.5 rounded text-xs bg-yellow-900 text-yellow-300; }
+  
+  /* Responsive utilities */
+  .scrollbar-hide { scrollbar-width: none; }
+  .scrollbar-hide::-webkit-scrollbar { display: none; }
 }

@@ -15,7 +15,6 @@ import {
   ConnectionMapPanel,
   OverviewPanel,
   OrderSenderPanel,
-  PhonePublisherPanel,
 } from './components/panels/advanced'
 import { ChaosControlPanel } from './components/chaos/index'
 import * as rabbitmq from './api/rabbitmq'
@@ -29,18 +28,19 @@ const TABS = [
   { id: 'consumers', label: 'Consumers' },
   { id: 'connections', label: 'Connections' },
   { id: 'dlx', label: 'DLX Audit' },
-  { id: 'orders', label: '📦 Orders' },
+  { id: 'orders', label: 'Orders' },
   { id: 'publisher', label: 'Publisher' },
-  { id: 'phone', label: '📱 Phone' },
-  { id: 'chaos', label: '⚡ Chaos' },
+  { id: 'chaos', label: 'Chaos' },
 ]
 
 export default function App() {
   const [active, setActive] = useState('overview')
+  const [isClusterHealthOpen, setIsClusterHealthOpen] = useState(true)
   const [nodes, setNodes] = useState([])
   const [overview, setOverview] = useState({})
   const [queues, setQueues] = useState([])
   const [exchanges, setExchanges] = useState([])
+  const [bindings, setBindings] = useState([])
   const [consumers, setConsumers] = useState([])
   const [connections, setConnections] = useState([])
   const [dlxHistory, setDlxHistory] = useState([])
@@ -51,12 +51,13 @@ export default function App() {
   // Fetch all data every 2 seconds
   useInterval(async () => {
     try {
-      const [nodesData, overviewData, queuesData, exchangesData, consumersData, connsData, dlxData] =
+      const [nodesData, overviewData, queuesData, exchangesData, bindingsData, consumersData, connsData, dlxData] =
         await Promise.all([
           rabbitmq.fetchNodes(),
           rabbitmq.fetchOverview(),
           rabbitmq.fetchQueues(),
           rabbitmq.fetchExchanges(),
+          rabbitmq.fetchBindings(),
           rabbitmq.fetchConsumers(),
           rabbitmq.fetchConnections(),
           chaos.getDlxHistory(50),
@@ -66,6 +67,7 @@ export default function App() {
       setOverview(overviewData || {})
       setQueues(queuesData || [])
       setExchanges(exchangesData || [])
+      setBindings(bindingsData || [])
       setConsumers(consumersData || [])
       setConnections(connsData || [])
       setDlxHistory(dlxData || [])
@@ -92,12 +94,13 @@ export default function App() {
   useEffect(() => {
     ;(async () => {
       try {
-        const [nodesData, overviewData, queuesData, exchangesData, consumersData, connsData, dlxData] =
+        const [nodesData, overviewData, queuesData, exchangesData, bindingsData, consumersData, connsData, dlxData] =
           await Promise.all([
             rabbitmq.fetchNodes(),
             rabbitmq.fetchOverview(),
             rabbitmq.fetchQueues(),
             rabbitmq.fetchExchanges(),
+            rabbitmq.fetchBindings(),
             rabbitmq.fetchConsumers(),
             rabbitmq.fetchConnections(),
             chaos.getDlxHistory(50),
@@ -107,6 +110,7 @@ export default function App() {
         setOverview(overviewData || {})
         setQueues(queuesData || [])
         setExchanges(exchangesData || [])
+        setBindings(bindingsData || [])
         setConsumers(consumersData || [])
         setConnections(connsData || [])
         setDlxHistory(dlxData || [])
@@ -127,7 +131,7 @@ export default function App() {
         return <QueueMonitorPanel queues={queues} loading={loading} error={error} />
 
       case 'exchanges':
-        return <ExchangeMapPanel exchanges={exchanges} loading={loading} error={error} />
+        return <ExchangeMapPanel exchanges={exchanges} bindings={bindings} loading={loading} error={error} />
 
       case 'consumers':
         return <ConsumerStatusPanel consumers={consumers} loading={loading} error={error} />
@@ -144,9 +148,6 @@ export default function App() {
       case 'publisher':
         return <MessagePublisherPanel exchanges={exchanges} />
 
-      case 'phone':
-        return <PhonePublisherPanel />
-
       case 'chaos':
         return <ChaosControlPanel queues={queues} exchanges={exchanges} />
 
@@ -158,9 +159,9 @@ export default function App() {
   return (
     <div className="min-h-screen bg-gray-950 flex flex-col">
       {/* Header */}
-      <header className="border-b border-gray-800 px-6 py-4 flex items-center justify-between">
+      <header className="border-b border-gray-800 px-3 sm:px-6 py-3 sm:py-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 sm:gap-0">
         <div>
-          <h1 className="text-2xl font-bold text-white">
+          <h1 className="text-xl sm:text-2xl font-bold text-white">
             <span className="text-orange-500">Shop</span>Flow
           </h1>
           <p className="text-xs text-gray-500 mt-1">
@@ -177,12 +178,12 @@ export default function App() {
       </header>
 
       {/* Navigation Tabs */}
-      <nav className="border-b border-gray-800 px-6 flex gap-1 overflow-x-auto">
+      <nav className="border-b border-gray-800 px-3 sm:px-6 flex flex-wrap gap-1">
         {TABS.map((t) => (
           <button
             key={t.id}
             onClick={() => setActive(t.id)}
-            className={`px-4 py-3 text-xs font-semibold whitespace-nowrap transition-colors ${
+            className={`px-2 sm:px-4 py-2 sm:py-3 text-xs sm:text-sm font-semibold whitespace-nowrap transition-colors ${
               active === t.id
                 ? 'text-orange-400 border-b-2 border-orange-500'
                 : 'text-gray-400 hover:text-gray-200'
@@ -194,10 +195,18 @@ export default function App() {
       </nav>
 
       {/* Main Content */}
-      <main className="flex-1 p-6 overflow-y-auto">
-        <div className="max-w-7xl mx-auto space-y-6">
+      <main className="flex-1 p-3 sm:p-6 overflow-y-auto">
+        <div className="max-w-7xl mx-auto space-y-4 sm:space-y-6">
           {/* Show cluster health on all pages */}
-          {active !== 'overview' && <ClusterHealthPanel nodes={nodes} loading={loading} error={error} />}
+          {active !== 'overview' && (
+            <ClusterHealthPanel 
+              nodes={nodes} 
+              loading={loading} 
+              error={error}
+              isOpen={isClusterHealthOpen}
+              onToggle={() => setIsClusterHealthOpen(!isClusterHealthOpen)}
+            />
+          )}
 
           {/* Active panel */}
           {renderPanel()}
@@ -205,9 +214,9 @@ export default function App() {
       </main>
 
       {/* Footer */}
-      <footer className="border-t border-gray-800 px-6 py-3 text-xs text-gray-600 flex justify-between">
+      <footer className="border-t border-gray-800 px-3 sm:px-6 py-2 sm:py-3 text-xs text-gray-600 flex flex-col sm:flex-row justify-between gap-1 sm:gap-0">
         <p>Real-time updates every 2 seconds</p>
-        <p>© 2025 Team 9 — IIITH Distributed Systems Course</p>
+        <p className="text-center sm:text-right">© 2025 Team 9 — IIITH Distributed Systems Course</p>
       </footer>
     </div>
   )

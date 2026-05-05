@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react'
+import { AlertTriangle, Zap, Square, Play, Pause, RotateCcw, Trash2 } from 'lucide-react'
 import { Card, Button, LoadingSpinner, Stat, Badge } from '../ui/index'
 import * as chaos from '../../api/chaos'
 import { useInterval } from '../../hooks/useInterval'
@@ -95,11 +96,14 @@ export function ChaosControlPanel({ queues = [], exchanges = [] }) {
   return (
     <div className="space-y-4">
       <Card className="bg-red-950 border-red-800">
-        <div className="mb-2">
-          <h2 className="text-lg font-bold text-red-300">⚡ Chaos Engineering Control Panel</h2>
-          <p className="text-xs text-red-400 mt-1">
-            Inject failures to test system resilience. Effects are reversible. Monitor the system's response!
-          </p>
+        <div className="mb-2 flex items-center gap-2">
+          <Zap className="w-5 h-5 text-red-400" />
+          <div>
+            <h2 className="text-lg font-bold text-red-300">Chaos Engineering Control Panel</h2>
+            <p className="text-xs text-red-400 mt-1">
+              Inject failures to test system resilience. Effects are reversible. Monitor the system's response!
+            </p>
+          </div>
         </div>
       </Card>
 
@@ -300,7 +304,10 @@ export function ChaosControlPanel({ queues = [], exchanges = [] }) {
             >
               Purge Now
             </Button>
-            <p className="text-xs text-gray-600 mt-2">⚠️ Destructive - messages lost</p>
+            <p className="text-xs text-gray-600 mt-2">
+              <AlertTriangle className="w-4 h-4 inline mr-1 text-red-500" />
+              Destructive - messages lost
+            </p>
           </div>
 
           {/* Inject Poison - Single */}
@@ -350,19 +357,22 @@ export function ChaosControlPanel({ queues = [], exchanges = [] }) {
         </div>
 
         <div className="mt-4 space-y-2">
-          <div className="bg-yellow-950 border border-yellow-800 rounded p-2">
-            <p className="text-xs text-yellow-300">
-              <strong>📋 Purge:</strong> Deletes all pending messages. Useful for cleanup.
+          <div className="bg-slate-800 border border-slate-700 rounded p-2">
+            <p className="text-xs text-slate-300">
+              <Trash2 className="w-3 h-3 inline mr-1" />
+              <strong>Purge:</strong> Deletes all pending messages. Useful for cleanup.
             </p>
           </div>
-          <div className="bg-orange-950 border border-orange-800 rounded p-2">
-            <p className="text-xs text-orange-300">
-              <strong>☠️ Poison:</strong> Sends bad JSON that causes parsing errors. Consumer errors and messages go to DLX after retries.
+          <div className="bg-slate-800 border border-slate-700 rounded p-2">
+            <p className="text-xs text-slate-300">
+              <AlertTriangle className="w-3 h-3 inline mr-1" />
+              <strong>Poison:</strong> Sends bad JSON that causes parsing errors. Consumer errors and messages go to DLX after retries.
             </p>
           </div>
-          <div className="bg-blue-950 border border-blue-800 rounded p-2">
-            <p className="text-xs text-blue-300">
-              <strong>🌊 Flood:</strong> Rapid fire 100 messages to queue. Tests consumer throughput and backpressure.
+          <div className="bg-slate-800 border border-slate-700 rounded p-2">
+            <p className="text-xs text-slate-300">
+              <Zap className="w-3 h-3 inline mr-1" />
+              <strong>Flood:</strong> Rapid fire 100 messages to queue. Tests consumer throughput and backpressure.
             </p>
           </div>
         </div>

@@ -26,6 +26,10 @@ class PublishMessageRequest(BaseModel):
         ...,
         description="Message body as JSON object"
     )
+    headers: dict = Field(
+        default_factory=dict,
+        description="AMQP message headers for headers exchange routing (e.g., {'region': 'EU', 'format': 'json'})"
+    )
     persistent: bool = Field(
         default=True,
         description="Whether to make message persistent (delivery_mode=2)"
@@ -61,11 +65,11 @@ def publish_message(req: PublishMessageRequest):
         HTTPException(500): Failed to publish message
     """
     try:
-        # Validate exchange name
-        if not req.exchange or not isinstance(req.exchange, str):
+        # Validate exchange name (allow empty string for AMQP default exchange)
+        if req.exchange is None or not isinstance(req.exchange, str):
             raise HTTPException(
                 status_code=400,
-                detail="Exchange name must be a non-empty string"
+                detail="Exchange name must be a string ('' for AMQP default exchange)"
             )
         
         # Validate body
@@ -82,10 +86,14 @@ def publish_message(req: PublishMessageRequest):
         try:
             channel = conn.channel()
             
-            # Prepare message properties
+            # Map 'default' to empty string for AMQP default exchange
+            exchange_name = '' if req.exchange == 'default' else req.exchange
+            
+            # Prepare message properties (include headers for headers exchange routing)
             properties = pika.BasicProperties(
                 delivery_mode=2 if req.persistent else 1,
-                content_type='application/json'
+                content_type='application/json',
+                headers=req.headers if req.headers else None
             )
             
             # Convert body to JSON string and encode
@@ -93,14 +101,14 @@ def publish_message(req: PublishMessageRequest):
             
             # Publish the message
             channel.basic_publish(
-                exchange=req.exchange,
+                exchange=exchange_name,
                 routing_key=req.routing_key or "",
                 body=message_body,
                 properties=properties
             )
             
             logger.info(
-                f"Message published to exchange='{req.exchange}' "
+                f"Message published to exchange='{exchange_name}' "
                 f"routing_key='{req.routing_key}' "
                 f"persistent={req.persistent}"
             )
