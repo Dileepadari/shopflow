@@ -532,3 +532,6 @@ rabbit1 → rabbit2 → rabbit3
                ↓
            frontend
 ```
+
+## Testing
+python -m pytest tests/unit/ -v
