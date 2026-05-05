@@ -1,5 +1,5 @@
 # =============================================================================
-#  ShopFlow — docker-compose.yml
+#  ShopFlow - docker-compose.yml
 #  Run everything:  docker compose up --build
 #
 #  Service startup order:
@@ -80,7 +80,7 @@ x-consumer-common: &consumer-common
 services:
 
   # ===========================================================================
-  # RabbitMQ Cluster — 3 nodes
+  # RabbitMQ Cluster - 3 nodes
   # ===========================================================================
 
   rabbit1:
@@ -138,7 +138,7 @@ services:
         condition: service_healthy
 
   # ===========================================================================
-  # HAProxy — unified AMQP entrypoint
+  # HAProxy - unified AMQP entrypoint
   # ===========================================================================
 
   haproxy:
@@ -166,7 +166,7 @@ services:
       retries: 5
 
   # ===========================================================================
-  # cluster_init — ONE-SHOT service
+  # cluster_init - ONE-SHOT service
   # Declares all exchanges, queues, and bindings.
   # Exits 0 on success → consumers and other services start.
   # ===========================================================================
@@ -181,13 +181,13 @@ services:
     environment:
       <<: *python-env
     command: python scripts/cluster_init.py
-    restart: "no"   # Must not restart — it's a one-shot init
+    restart: "no"   # Must not restart - it's a one-shot init
     depends_on:
       haproxy:
         condition: service_healthy
 
   # ===========================================================================
-  # CONSUMERS — FR-01: Work Queues
+  # CONSUMERS - FR-01: Work Queues
   # ===========================================================================
 
   payment_consumer_1:
@@ -211,7 +211,7 @@ services:
     command: python src/consumers/inventory_consumer.py
 
   # ===========================================================================
-  # CONSUMERS — FR-02: Fanout (order.events)
+  # CONSUMERS - FR-02: Fanout (order.events)
   # ===========================================================================
 
   email_consumer:
@@ -230,7 +230,7 @@ services:
     command: python src/consumers/push_consumer.py
 
   # ===========================================================================
-  # CONSUMERS — FR-03: Direct (logs.direct)
+  # CONSUMERS - FR-03: Direct (logs.direct)
   # ===========================================================================
 
   log_error_consumer:
@@ -244,7 +244,7 @@ services:
     command: python src/consumers/log_info_consumer.py
 
   # ===========================================================================
-  # CONSUMERS — FR-04: Topic (notifications.topic)
+  # CONSUMERS - FR-04: Topic (notifications.topic)
   # ===========================================================================
 
   notif_email_consumer:
@@ -263,7 +263,7 @@ services:
     command: python src/consumers/notif_audit_consumer.py
 
   # ===========================================================================
-  # CONSUMERS — FR-05: Headers (orders.headers)
+  # CONSUMERS - FR-05: Headers (orders.headers)
   # ===========================================================================
 
   eu_processor:
@@ -282,7 +282,7 @@ services:
     command: python src/consumers/xml_legacy_consumer.py
 
   # ===========================================================================
-  # CONSUMERS — FR-08: Dead Letter Exchange
+  # CONSUMERS - FR-08: Dead Letter Exchange
   # ===========================================================================
 
   dead_letter_consumer:
@@ -291,7 +291,7 @@ services:
     command: python src/consumers/dead_letter_consumer.py
 
   # ===========================================================================
-  # Producer API — REST endpoints to publish orders on demand
+  # Producer API - REST endpoints to publish orders on demand
   # Replaces running producers manually from the command line
   # ===========================================================================
 

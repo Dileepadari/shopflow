@@ -1,1 +1,1 @@
-"""src.consumers — One consumer per queue / exchange pattern."""
+"""src.consumers - One consumer per queue / exchange pattern."""

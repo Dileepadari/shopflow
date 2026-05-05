@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Production teardown script — complete system reset with safety checks
+# Production teardown script - complete system reset with safety checks
 set -e
 
 RESET='\033[0m'
@@ -9,7 +9,7 @@ YELLOW='\033[1;33m'
 
 echo -e "${YELLOW}=== ShopFlow Teardown ===${RESET}"
 echo -e "${YELLOW}This will PERMANENTLY delete all containers, volumes, and logs.${RESET}"
-echo -e "${RED}WARNING: Data loss — cannot recover after this step.${RESET}"
+echo -e "${RED}WARNING: Data loss - cannot recover after this step.${RESET}"
 read -p "Are you sure? (type 'YES' to proceed): " confirm
 
 if [ "$confirm" != "YES" ]; then

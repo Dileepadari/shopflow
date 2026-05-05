@@ -1,5 +1,5 @@
-# ShopFlow — Distributed Order Processing & Notification System
-> **Team 9 — Three Musketeers** | IIITH Distributed Systems | 2026
+# ShopFlow - Distributed Order Processing & Notification System
+> **Team 9 - Three Musketeers** | IIITH Distributed Systems | 2026
 
 A production-grade, fully Dockerized e-commerce order processing system using RabbitMQ with automatic failover, dead-letter handling, and real-time monitoring.
 
@@ -20,13 +20,13 @@ docker compose up --build
 ```
 
 That's it! All 24 services auto-start with correct dependency order:
-1. **3-node RabbitMQ cluster** (172.20.0.11/12/13) — Quorum queues, Raft consensus
-2. **HAProxy** (172.20.0.10) — Unified AMQP entrypoint on port 5670
-3. **cluster_init** — One-shot topology initialization, then exits
-4. **14 Consumers** — All 5 RabbitMQ exchange types + DLX handler
-5. **Producer API** — FastAPI REST service (port 8090)
-6. **Chaos Service** — Fault injection API (port 8080)
-7. **Frontend** — React dashboard with real-time monitoring (port 3000)
+1. **3-node RabbitMQ cluster** (172.20.0.11/12/13) - Quorum queues, Raft consensus
+2. **HAProxy** (172.20.0.10) - Unified AMQP entrypoint on port 5670
+3. **cluster_init** - One-shot topology initialization, then exits
+4. **14 Consumers** - All 5 RabbitMQ exchange types + DLX handler
+5. **Producer API** - FastAPI REST service (port 8090)
+6. **Chaos Service** - Fault injection API (port 8080)
+7. **Frontend** - React dashboard with real-time monitoring (port 3000)
 
 ---
 
@@ -34,9 +34,9 @@ That's it! All 24 services auto-start with correct dependency order:
 
 | URL | Service | Credentials | Purpose |
 |-----|---------|-------------|---------|
-| http://localhost:3000 | **React Dashboard** | — | Real-time monitoring, order publishing, chaos control |
-| http://localhost:8090/docs | **Producer API** (Swagger) | — | REST endpoints for order publishing |
-| http://localhost:8080/docs | **Chaos Control Panel** (Swagger) | — | Fault injection API |
+| http://localhost:3000 | **React Dashboard** | - | Real-time monitoring, order publishing, chaos control |
+| http://localhost:8090/docs | **Producer API** (Swagger) | - | REST endpoints for order publishing |
+| http://localhost:8080/docs | **Chaos Control Panel** (Swagger) | - | Fault injection API |
 | http://localhost:15672 | **RabbitMQ Mgmt** (node 1) | admin/shopflow123 | RabbitMQ cluster UI |
 | http://localhost:8404/stats | **HAProxy Stats** | admin/shopflow123 | Load balancer health |
 
@@ -65,7 +65,7 @@ curl -X POST http://localhost:8090/orders/batch \
 
 ### Via Dashboard
 1. Open http://localhost:3000
-2. Click **📦 Orders** tab
+2. Click **Orders** tab
 3. Set quantity, customer ID, amount
 4. Select **US Region** or **EU Region** template
 5. Click "Send N Orders"
@@ -270,7 +270,7 @@ Removes:
 - Shared log files
 - Network bridges
 
-**Warning:** Data loss — cannot recover after teardown.
+**Warning:** Data loss - cannot recover after teardown.
 
 ### Soft Reset (Keep Containers)
 ```bash
@@ -314,6 +314,10 @@ docker compose logs -f --tail=100 consumer_name
 ---
 
 ## 🏗️ Architecture
+
+### Diagram
+![Architecture](Architecture.png)
+
 
 ### Message Flow
 ```
@@ -455,7 +459,7 @@ This system demonstrates:
 
 ## 📞 Support
 
-Team 9 — Three Musketeers  
+Team 9 - Three Musketeers  
 IIITH Distributed Systems Course | 2026
 
 **Git:** https://github.com/Dileepadari/shopflow

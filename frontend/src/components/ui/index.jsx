@@ -2,7 +2,7 @@ import clsx from 'clsx'
 import { Info } from 'lucide-react'
 
 /**
- * Card — Wrapper component for dashboard panels.
+ * Card - Wrapper component for dashboard panels.
  */
 export function Card({ className, children }) {
   return (
@@ -13,7 +13,7 @@ export function Card({ className, children }) {
 }
 
 /**
- * Badge — Colored label for status indicators.
+ * Badge - Colored label for status indicators.
  */
 export function Badge({ status, label, variant, className, children }) {
   const statusClasses = {
@@ -40,7 +40,7 @@ export function Badge({ status, label, variant, className, children }) {
 }
 
 /**
- * Button — Primary action button.
+ * Button - Primary action button.
  */
 export function Button({ onClick, disabled, variant = 'primary', className, children }) {
   const variantClasses = {
@@ -65,7 +65,7 @@ export function Button({ onClick, disabled, variant = 'primary', className, chil
 }
 
 /**
- * StatusDot — Colored circle indicator for health status.
+ * StatusDot - Colored circle indicator for health status.
  */
 export function StatusDot({ status, className }) {
   const statusClasses = {
@@ -82,7 +82,7 @@ export function StatusDot({ status, className }) {
 }
 
 /**
- * Stat — Display a metric with label and value.
+ * Stat - Display a metric with label and value.
  */
 export function Stat({ label, value, unit = '', trend, description, className }) {
   return (
@@ -112,7 +112,7 @@ export function Stat({ label, value, unit = '', trend, description, className })
 }
 
 /**
- * LoadingSpinner — Shows loading state.
+ * LoadingSpinner - Shows loading state.
  */
 export function LoadingSpinner() {
   return (
@@ -123,7 +123,7 @@ export function LoadingSpinner() {
 }
 
 /**
- * ErrorMessage — Shows error state.
+ * ErrorMessage - Shows error state.
  */
 export function ErrorMessage({ message }) {
   return (

@@ -2,7 +2,7 @@
 src.core.connection
 ~~~~~~~~~~~~~~~~~~~~
 Factory for pika connections and channels.
-All producers/consumers call get_connection() from here — never raw pika calls.
+All producers/consumers call get_connection() from here - never raw pika calls.
 """
 import time
 import logging

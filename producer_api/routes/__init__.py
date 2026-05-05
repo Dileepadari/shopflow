@@ -1,1 +1,1 @@
-"""producer_api.routes — FastAPI routers."""
+"""producer_api.routes - FastAPI routers."""

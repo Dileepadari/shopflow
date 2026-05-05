@@ -17,9 +17,33 @@ class PoisonRequest(BaseModel):
     count: int = 1
 
 class FloodRequest(BaseModel):
-    exchange:    str
-    count:       int = 100
-    routing_key: Optional[str] = ""
+    queue:   str
+    count:   int = 100
+
+
+# Queue to Exchange mapping - determines where each queue receives messages
+QUEUE_EXCHANGE_MAP = {
+    # Work queues (default exchange)
+    "payment_queue":    ("", "payment_queue"),
+    "inventory_queue":  ("", "inventory_queue"),
+    # Fanout exchange
+    "email_queue":      ("order.events", ""),
+    "sms_queue":        ("order.events", ""),
+    "push_queue":       ("order.events", ""),
+    # Direct exchanges
+    "log_error_queue":  ("logs.error", "error"),
+    "log_info_queue":   ("logs.info", "info"),
+    # Topic exchange
+    "notif_email_queue":  ("notifications.topic", "notification.email.test"),
+    "notif_sms_queue":    ("notifications.topic", "notification.sms.urgent"),
+    "notif_audit_queue":  ("notifications.topic", "#"),
+    # Headers exchange
+    "eu_queue":         ("orders.headers", ""),
+    "us_queue":         ("orders.headers", ""),
+    "xml_legacy_queue": ("orders.headers", ""),
+    # Dead letter queue
+    "dead_letter_queue": ("", "dead_letter_queue"),
+}
 
 @router.post("/queue/purge")
 def purge_queue(req: PurgeRequest):
@@ -33,8 +57,14 @@ def inject_poison(req: PoisonRequest):
 
 @router.post("/queue/flood")
 def flood_queue(req: FloodRequest):
-    return {"action": "flood", "exchange": req.exchange, "count": req.count,
-            "result": rmq_svc.flood_exchange(req.exchange, req.count, req.routing_key)}
+    queue_name = req.queue
+    if queue_name not in QUEUE_EXCHANGE_MAP:
+        return {"action": "flood", "queue": queue_name, "count": req.count,
+                "result": f"Unknown queue: {queue_name}. Available: {list(QUEUE_EXCHANGE_MAP.keys())}"}
+    
+    exchange, routing_key = QUEUE_EXCHANGE_MAP[queue_name]
+    return {"action": "flood", "queue": queue_name, "count": req.count,
+            "result": rmq_svc.flood_exchange(exchange, req.count, routing_key)}
 
 @router.post("/connections/drop-all")
 def drop_all():

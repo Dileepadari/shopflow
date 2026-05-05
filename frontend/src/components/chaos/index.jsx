@@ -6,7 +6,7 @@ import { useInterval } from '../../hooks/useInterval'
 import clsx from 'clsx'
 
 /**
- * ChaosControlPanel — Master control panel for failure injection testing.
+ * ChaosControlPanel - Master control panel for failure injection testing.
  * Demonstrates system resilience under various failure conditions.
  * 
  * Key Concepts:
@@ -127,7 +127,7 @@ export function ChaosControlPanel({ queues = [], exchanges = [] }) {
               >
                 {allServices.map((svc) => (
                   <option key={svc.name} value={svc.name}>
-                    {svc.name} ({svc.state || 'running'})
+                    {svc.name} ({svc.connection || svc.state || 'running'})
                   </option>
                 ))}
               </select>
@@ -342,17 +342,17 @@ export function ChaosControlPanel({ queues = [], exchanges = [] }) {
 
           {/* Flood */}
           <div className="border border-yellow-700 rounded p-3 bg-gray-900">
-            <p className="text-xs font-semibold text-yellow-400 mb-2">Flood Exchange</p>
-            <p className="text-xs text-gray-500 mb-2">Send 100 messages fast</p>
+            <p className="text-xs font-semibold text-yellow-400 mb-2">Flood Selected Queue</p>
+            <p className="text-xs text-gray-500 mb-2">Send 100 messages to {selectedQueue}</p>
             <Button
               variant="warning"
-              onClick={() => executeAction(() => chaos.floodExchange('order.events', 100), `Flood order.events`, `100 messages sent`)}
-              disabled={acting}
+              onClick={() => executeAction(() => chaos.floodQueue(selectedQueue, 100), `Flood ${selectedQueue}`, `100 messages sent`)}
+              disabled={acting || !selectedQueue}
               className="w-full text-xs"
             >
-              Flood (100 msgs)
+              Flood {selectedQueue} (100 msgs)
             </Button>
-            <p className="text-xs text-gray-600 mt-2">Load test the system</p>
+            <p className="text-xs text-gray-600 mt-2">Load test the selected queue</p>
           </div>
         </div>
 

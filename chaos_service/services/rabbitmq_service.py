@@ -47,11 +47,52 @@ class RabbitMQService:
     def flood_exchange(self, exchange, count, routing_key=""):
         try:
             conn = self._conn(); ch = conn.channel()
-            props = pika.BasicProperties(delivery_mode=2)
-            body = json.dumps({"order_id": str(uuid.uuid4()), "flood": True,
-                               "timestamp": datetime.now(timezone.utc).isoformat()}).encode()
-            for _ in range(count):
+            
+            # Generate realistic messages based on queue/exchange type
+            for i in range(count):
+                order_id = f"FLOOD-{uuid.uuid4().hex[:8]}"
+                base_msg = {
+                    "order_id": order_id,
+                    "flood": True,
+                    "timestamp": datetime.now(timezone.utc).isoformat(),
+                    "batch_index": i
+                }
+                
+                # Prepare headers and message body based on exchange type
+                headers = None
+                
+                if exchange == "" and routing_key == "payment_queue":
+                    # Payment messages need amount and currency
+                    msg = {**base_msg, "amount": 99.99, "currency": "USD", "customer_email": f"customer{i}@example.com"}
+                elif exchange == "" and routing_key == "inventory_queue":
+                    # Inventory messages need items
+                    msg = {**base_msg, "items": [{"sku": "SKU-001", "qty": 5}]}
+                elif exchange == "order.events":
+                    # Fanout (email, sms, push)
+                    msg = {**base_msg, "customer_email": f"customer{i}@example.com", "phone": "+1234567890", "amount": 99.99}
+                elif exchange == "logs.error":
+                    # Error logs
+                    msg = {**base_msg, "level": "error", "message": f"Flood error message {i}", "service": "flood_test"}
+                elif exchange == "logs.info":
+                    # Info logs
+                    msg = {**base_msg, "level": "info", "message": f"Flood info message {i}", "service": "flood_test"}
+                elif exchange == "notifications.topic":
+                    # Topic notifications
+                    msg = {**base_msg, "notification_type": "email", "content": f"Notification {i}"}
+                elif exchange == "orders.headers":
+                    # Headers exchange - routing via AMQP headers, not routing key
+                    # Alternate between EU and US regions
+                    region = "EU" if i % 2 == 0 else "US"
+                    msg = {**base_msg, "amount": 50.00, "region": region, "format": "json"}
+                    headers = {"region": region, "format": "json"}
+                else:
+                    msg = base_msg
+                
+                # Publish with appropriate properties
+                props = pika.BasicProperties(delivery_mode=2, headers=headers)
+                body = json.dumps(msg).encode()
                 ch.basic_publish(exchange, routing_key or "", body, props)
+            
             conn.close()
             return f"Flooded {exchange} with {count} messages"
         except Exception as e: return f"Error: {e}"

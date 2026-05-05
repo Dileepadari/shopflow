@@ -1,5 +1,5 @@
 """
-Locust load test — publishes orders via Producer API.
+Locust load test - publishes orders via Producer API.
 Usage:
   locust -f tests/load/locustfile.py --host http://localhost:8090
   # Open http://localhost:8089

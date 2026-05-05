@@ -1,4 +1,4 @@
-"""FR-08: Dead Letter Exchange consumer — retries dead-lettered messages and audits final failures."""
+"""FR-08: Dead Letter Exchange consumer - retries dead-lettered messages and audits final failures."""
 import json
 from datetime import datetime, timezone
 from pathlib import Path
@@ -27,7 +27,7 @@ def on_dead_letter(channel, method, properties, body):
 
     if original_queue != "unknown" and retry_count < settings.max_retries:
         self_retry = retry_count + 1
-        logger.warning("[DLX] Retry %d/%d for queue '%s' — republishing.",
+        logger.warning("[DLX] Retry %d/%d for queue '%s' - republishing.",
                        self_retry, settings.max_retries, original_queue)
         republish_props = pika.BasicProperties(
             headers=headers,
@@ -104,7 +104,7 @@ def run():
             logger.info("[DLX] Waiting for dead-lettered messages.")
             ch.start_consuming()
         except pika.exceptions.AMQPConnectionError:
-            logger.warning("[DLX] Lost connection — retry in 5s.")
+            logger.warning("[DLX] Lost connection - retry in 5s.")
             time.sleep(5)
         except KeyboardInterrupt:
             break

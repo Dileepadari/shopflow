@@ -1,4 +1,4 @@
-"""FR-04: Audit consumer — receives ALL notifications (topic: #)."""
+"""FR-04: Audit consumer - receives ALL notifications (topic: #)."""
 import json
 from pathlib import Path
 from src.consumers._base_consumer import BaseConsumer

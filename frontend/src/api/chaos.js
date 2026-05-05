@@ -17,7 +17,7 @@ export const killBroker         = n            => post(CHAOS, '/chaos/broker/kil
 export const startBroker        = n            => post(CHAOS, '/chaos/broker/start', {node:n})
 export const purgeQueue         = q            => post(CHAOS, '/chaos/queue/purge',  {queue:q})
 export const injectPoison       = (q,c)        => post(CHAOS, '/chaos/queue/poison', {queue:q,count:c})
-export const floodExchange      = (e,c)        => post(CHAOS, '/chaos/queue/flood',  {exchange:e,count:c})
+export const floodQueue         = (q,c)        => post(CHAOS, '/chaos/queue/flood',  {queue:q,count:c})
 export const dropAllConnections = ()           => post(CHAOS, '/chaos/connections/drop-all')
 export const restoreAll         = ()           => post(CHAOS, '/chaos/restore-all')
 

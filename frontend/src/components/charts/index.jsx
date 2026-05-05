@@ -1,7 +1,7 @@
 import { LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts'
 
 /**
- * MessageRateChart — Time-series chart of publish/ack/nack rates.
+ * MessageRateChart - Time-series chart of publish/ack/nack rates.
  */
 export function MessageRateChart({ data = [] }) {
   if (data.length === 0) {
@@ -29,7 +29,7 @@ export function MessageRateChart({ data = [] }) {
 }
 
 /**
- * QueueDepthChart — Bar chart showing queue depths.
+ * QueueDepthChart - Bar chart showing queue depths.
  */
 export function QueueDepthChart({ data = [] }) {
   if (data.length === 0) {
@@ -61,7 +61,7 @@ export function QueueDepthChart({ data = [] }) {
 }
 
 /**
- * ExchangeVisualization — Simple exchange binding diagram.
+ * ExchangeVisualization - Simple exchange binding diagram.
  */
 export function ExchangeVisualization({ exchange = {} }) {
   const { name, type, bindings = [] } = exchange

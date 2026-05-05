@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Demo script — triggers all 7 chaos scenarios via the APIs
+# Demo script - triggers all 7 chaos scenarios via the APIs
 CHAOS="http://localhost:8080/chaos"
 ORDERS="http://localhost:8090/orders"
 PAUSE=8
@@ -11,15 +11,15 @@ echo "=== STEP 1: Publish 10 orders across all exchanges ==="
 o "batch" '{"count":10,"region":"US"}'
 sleep $PAUSE
 
-echo "=== STEP 2: Stop payment_consumer_1 — queue accumulates ==="
+echo "=== STEP 2: Stop payment_consumer_1 - queue accumulates ==="
 c "consumer/stop" '{"service":"payment_consumer_1"}'
 o "batch" '{"count":20}'
-echo "  Waiting 10s — watch dashboard queue depth..."
+echo "  Waiting 10s - watch dashboard queue depth..."
 sleep 10
 c "consumer/start" '{"service":"payment_consumer_1"}'
 sleep $PAUSE
 
-echo "=== STEP 3: Kill email_consumer — heartbeat timeout → requeue ==="
+echo "=== STEP 3: Kill email_consumer - heartbeat timeout → requeue ==="
 c "consumer/kill" '{"service":"email_consumer"}'
 o "batch" '{"count":10}'
 sleep 15

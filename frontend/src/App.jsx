@@ -1,5 +1,5 @@
 /**
- * App.jsx — ShopFlow dashboard root.
+ * App.jsx - ShopFlow dashboard root.
  * Real-time monitoring and chaos control for RabbitMQ distributed messaging system.
  */
 import React, { useState, useEffect } from 'react'
@@ -169,7 +169,7 @@ export default function App() {
           </p>
         </div>
         <div className="flex flex-col items-end text-xs">
-          <p className="text-gray-400">Team 9 — Three Musketeers</p>
+          <p className="text-gray-400">Team 9 - Three Musketeers</p>
           <p className="text-gray-600 mt-1">
             {nodes.filter((n) => n.running).length}/{nodes.length} nodes
             <span className="ml-2 inline-block w-2 h-2 bg-green-500 rounded-full animate-pulse" />
@@ -216,7 +216,7 @@ export default function App() {
       {/* Footer */}
       <footer className="border-t border-gray-800 px-3 sm:px-6 py-2 sm:py-3 text-xs text-gray-600 flex flex-col sm:flex-row justify-between gap-1 sm:gap-0">
         <p>Real-time updates every 2 seconds</p>
-        <p className="text-center sm:text-right">© 2025 Team 9 — IIITH Distributed Systems Course</p>
+        <p className="text-center sm:text-right">© 2025 Team 9 - IIITH Distributed Systems Course</p>
       </footer>
     </div>
   )

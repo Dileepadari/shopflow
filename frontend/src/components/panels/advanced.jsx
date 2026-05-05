@@ -5,7 +5,7 @@ import { Card, Button, LoadingSpinner, ErrorMessage, Stat, Badge } from '../ui/i
 import { MessageRateChart } from '../charts/index'
 
 /**
- * DLXAuditLogPanel — Shows dead-lettered messages.
+ * DLXAuditLogPanel - Shows dead-lettered messages.
  */
 export function DLXAuditLogPanel({ dlxHistory = {}, loading, error }) {
   const [expanded, setExpanded] = useState(null)
@@ -71,7 +71,7 @@ export function DLXAuditLogPanel({ dlxHistory = {}, loading, error }) {
 }
 
 /**
- * MessagePublisherPanel — Form to publish test messages to exchanges.
+ * MessagePublisherPanel - Form to publish test messages to exchanges.
  * Each exchange type has its own message format and templates.
  */
 export function MessagePublisherPanel({ exchanges = [] }) {
@@ -407,7 +407,7 @@ export function MessagePublisherPanel({ exchanges = [] }) {
 }
 
 /**
- * ConnectionMapPanel — Shows all active AMQP connections.
+ * ConnectionMapPanel - Shows all active AMQP connections.
  */
 export function ConnectionMapPanel({ connections = [], loading, error }) {
   if (loading) return <Card><LoadingSpinner /></Card>
@@ -458,7 +458,7 @@ export function ConnectionMapPanel({ connections = [], loading, error }) {
 }
 
 /**
- * OverviewPanel — Dashboard summary with key metrics and message rate chart.
+ * OverviewPanel - Dashboard summary with key metrics and message rate chart.
  */
 export function OverviewPanel({ overview = {}, messageHistory = [], loading, error }) {
   if (loading) return <Card><LoadingSpinner /></Card>
@@ -551,7 +551,7 @@ export function OverviewPanel({ overview = {}, messageHistory = [], loading, err
 }
 
 /**
- * OrderSenderPanel — Form to send actual orders to the producer API.
+ * OrderSenderPanel - Form to send actual orders to the producer API.
  */
 export function OrderSenderPanel() {
   const [orderCount, setOrderCount] = useState(1)

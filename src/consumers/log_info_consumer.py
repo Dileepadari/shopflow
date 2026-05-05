@@ -10,7 +10,7 @@ class LogInfoConsumer(BaseConsumer):
     min_delay, max_delay = 0.01, 0.05
 
     def process_message(self, payload: dict) -> None:
-        logger.info("[LOG-%s] %s — %s", payload.get("level","INFO").upper(),
+        logger.info("[LOG-%s] %s - %s", payload.get("level","INFO").upper(),
                     payload.get("service"), payload.get("message"))
         
     def _on_message(self, channel, method, properties, body):

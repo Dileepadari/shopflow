@@ -1,4 +1,4 @@
-"""src.utils.logger — Consistent logging setup for all ShopFlow services."""
+"""src.utils.logger - Consistent logging setup for all ShopFlow services."""
 import logging
 import sys
 
@@ -9,7 +9,7 @@ def setup_logging(name: str, level: int = logging.INFO) -> logging.Logger:
         handler = logging.StreamHandler(sys.stdout)
         handler.setLevel(level)
         handler.setFormatter(logging.Formatter(
-            fmt="%(asctime)s  [%(levelname)-8s]  %(name)s  —  %(message)s",
+            fmt="%(asctime)s  [%(levelname)-8s]  %(name)s  -  %(message)s",
             datefmt="%Y-%m-%d %H:%M:%S",
         ))
         logger.addHandler(handler)

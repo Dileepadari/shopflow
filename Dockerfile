@@ -1,5 +1,5 @@
 # =============================================================================
-#  ShopFlow — Python base image
+#  ShopFlow - Python base image
 #  Used by: cluster_init, all consumers, producer_api, locust
 #  Each docker-compose service sets its own `command:` to choose which
 #  module to run.
@@ -28,5 +28,5 @@ COPY producer_api/ ./producer_api/
 # Create logs directory inside container
 RUN mkdir -p /app/logs
 
-# Default: nothing — each service sets its own command
+# Default: nothing - each service sets its own command
 CMD ["python", "--version"]

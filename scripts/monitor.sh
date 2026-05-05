@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Real-time system monitoring — watch metrics and queue depths
+# Real-time system monitoring - watch metrics and queue depths
 # Press Ctrl+C to exit
 
 RESET='\033[0m'
@@ -78,9 +78,9 @@ EOF
 
 show_help() {
     echo -e "\n${CYAN}Commands:${RESET}"
-    echo "  q  — Quit"
-    echo "  r  — Refresh now"
-    echo "  h  — Show help"
+    echo "  q  - Quit"
+    echo "  r  - Refresh now"
+    echo "  h  - Show help"
 }
 
 # Main loop

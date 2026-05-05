@@ -1,4 +1,4 @@
-"""FR-02: Email notification consumer (fanout — receives all order events)."""
+"""FR-02: Email notification consumer (fanout - receives all order events)."""
 from src.consumers._base_consumer import BaseConsumer
 from src.utils.logger import setup_logging
 logger = setup_logging(__name__)

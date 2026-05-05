@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# End-to-end validation script — test all ShopFlow features
+# End-to-end validation script - test all ShopFlow features
 set -e
 
 RESET='\033[0m'

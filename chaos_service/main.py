@@ -1,7 +1,7 @@
 """
 chaos_service.main
 ~~~~~~~~~~~~~~~~~~~
-Chaos Control Panel — FastAPI entrypoint.
+Chaos Control Panel - FastAPI entrypoint.
 Exposes fault-injection, status, and DLX history endpoints.
 """
 from fastapi import FastAPI

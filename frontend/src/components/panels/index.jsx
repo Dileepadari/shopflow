@@ -3,7 +3,7 @@ import { ChevronDown, ChevronRight, Server, AlertCircle, Info } from 'lucide-rea
 import { Card, Stat, StatusDot, Badge } from '../ui/index'
 
 /**
- * ClusterHealthPanel — Shows RabbitMQ cluster node status and metrics.
+ * ClusterHealthPanel - Shows RabbitMQ cluster node status and metrics.
  */
 export function ClusterHealthPanel({ nodes = [], loading, error, isOpen = true, onToggle }) {
   if (loading) return <Card><p className="text-gray-500">Loading cluster health...</p></Card>
@@ -57,7 +57,7 @@ export function ClusterHealthPanel({ nodes = [], loading, error, isOpen = true, 
 }
 
 /**
- * QueueMonitorPanel — Shows all queues with message counts and consumer counts.
+ * QueueMonitorPanel - Shows all queues with message counts and consumer counts.
  */
 export function QueueMonitorPanel({ queues = [], loading, error }) {
   if (loading) return <Card><p className="text-gray-500">Loading queues...</p></Card>
@@ -109,7 +109,7 @@ export function QueueMonitorPanel({ queues = [], loading, error }) {
 }
 
 /**
- * ExchangeMapPanel — Shows all exchanges and their bindings.
+ * ExchangeMapPanel - Shows all exchanges and their bindings.
  */
 export function ExchangeMapPanel({ exchanges = [], bindings = [], loading, error }) {
   if (loading) return <Card><p className="text-gray-500">Loading exchanges...</p></Card>
@@ -185,7 +185,7 @@ export function ExchangeMapPanel({ exchanges = [], bindings = [], loading, error
 }
 
 /**
- * ConsumerStatusPanel — Shows active consumers and their channels.
+ * ConsumerStatusPanel - Shows active consumers and their channels.
  */
 export function ConsumerStatusPanel({ consumers = [], loading, error }) {
   if (loading) return <Card><p className="text-gray-500">Loading consumers...</p></Card>

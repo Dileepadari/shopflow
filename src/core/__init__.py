@@ -1,1 +1,1 @@
-"""src.core — Shared RabbitMQ connection utilities, config, and declarations."""
+"""src.core - Shared RabbitMQ connection utilities, config, and declarations."""

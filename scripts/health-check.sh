@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Health check script — verify all services are operational
+# Health check script - verify all services are operational
 set -e
 
 RESET='\033[0m'
@@ -21,10 +21,10 @@ check_service() {
     local response=$(curl -s -o /dev/null -w "%{http_code}" "$url" 2>/dev/null || echo "000")
     
     if [ "$response" = "$expected_code" ]; then
-        echo -e "${GREEN}✓${RESET} $name ($url) — $response"
+        echo -e "${GREEN}✓${RESET} $name ($url) - $response"
         return 0
     else
-        echo -e "${RED}✗${RESET} $name ($url) — Expected $expected_code, got $response"
+        echo -e "${RED}✗${RESET} $name ($url) - Expected $expected_code, got $response"
         return 1
     fi
 }
@@ -32,10 +32,10 @@ check_service() {
 check_docker() {
     local service=$1
     if docker compose ps "$service" 2>/dev/null | grep -q "Up"; then
-        echo -e "${GREEN}✓${RESET} $service — Running"
+        echo -e "${GREEN}✓${RESET} $service - Running"
         return 0
     else
-        echo -e "${RED}✗${RESET} $service — Not running or unhealthy"
+        echo -e "${RED}✗${RESET} $service - Not running or unhealthy"
         return 1
     fi
 }

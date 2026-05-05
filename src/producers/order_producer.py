@@ -49,7 +49,7 @@ def publish_order(region: str = "US", fmt: str = "json",
         channel.basic_publish(exchange="order.events", routing_key="", body=body,
                             properties=build_properties())
 
-        # FR-03: Direct logs — route all log messages to error and info logs
+        # FR-03: Direct logs - route all log messages to error and info logs
         info_body = json.dumps({
             "order_id": order_id, "level": "info",
             "service": "order_producer",

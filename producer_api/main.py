@@ -5,10 +5,10 @@ Lightweight FastAPI that wraps the ShopFlow producers.
 Replaces running producers manually from the terminal.
 
 Endpoints:
-  POST /orders/publish          — publish one order through all exchanges
-  POST /orders/batch            — publish N orders
-  POST /orders/flood/{exchange} — flood an exchange with N messages
-  GET  /health                  — health probe
+  POST /orders/publish          - publish one order through all exchanges
+  POST /orders/batch            - publish N orders
+  POST /orders/flood/{exchange} - flood an exchange with N messages
+  GET  /health                  - health probe
 
 Open API docs at: http://localhost:8090/docs
 """

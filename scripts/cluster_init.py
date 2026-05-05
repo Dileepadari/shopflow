@@ -26,7 +26,7 @@ def main():
         channel = get_channel(connection)
         declare_all(channel)
         connection.close()
-        logger.info("cluster_init complete — all exchanges and queues ready.")
+        logger.info("cluster_init complete - all exchanges and queues ready.")
         sys.exit(0)   # Exit 0 so service_completed_successfully triggers
     except Exception as exc:
         logger.error("cluster_init FAILED: %s", exc)
