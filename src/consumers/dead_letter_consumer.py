@@ -51,13 +51,15 @@ class DeadLetterConsumer(BaseConsumer):
         original_queue = get_original_queue(headers)
         reason = get_death_reason(headers)
         attempts = get_retry_count(headers)
+        correlation_id = self._correlation_id(properties, payload)
 
         if should_retry(headers):
             self._republish(channel, method, properties, body,
                             original_queue, attempts, headers)
             return
 
-        self._archive(channel, method, payload, original_queue, reason, attempts)
+        self._archive(channel, method, payload, original_queue, reason, attempts,
+                      correlation_id)
 
     def _republish(self, channel, method, properties, body, original_queue: str,
                    attempts: int, headers: dict) -> None:
@@ -87,18 +89,22 @@ class DeadLetterConsumer(BaseConsumer):
             # Could not hand it back; archive instead of losing it.
             self.logger.error("[DLX] Republish to '%s' failed: %s", original_queue, exc)
             self._archive(channel, method, {"raw": body.decode("utf-8", errors="replace")},
-                          original_queue, f"republish_failed: {exc}", attempts)
+                          original_queue, f"republish_failed: {exc}", attempts,
+                          self._correlation_id(properties))
             return
         channel.basic_ack(delivery_tag=method.delivery_tag)
 
     def _archive(self, channel, method, payload: dict, original_queue: str,
-                 reason: str, attempts: int) -> None:
+                 reason: str, attempts: int,
+                 correlation_id: str | None = None) -> None:
         record = {
             "received_at": datetime.now(UTC).isoformat(),
             "original_queue": original_queue,
             "routing_key": method.routing_key,
             "death_reason": reason,
             "retry_count": attempts,
+            # Ties this failure back to the order that produced it.
+            "correlation_id": correlation_id,
             "message_body": payload,
         }
         try:
@@ -119,7 +125,7 @@ class DeadLetterConsumer(BaseConsumer):
                 "service": "dead_letter_consumer",
                 "message": f"Message dead-lettered from {original_queue}: {reason}",
                 "retry_count": attempts,
-            }).encode())
+            }).encode(), correlation_id)
 
         channel.basic_ack(delivery_tag=method.delivery_tag)
 

@@ -150,3 +150,36 @@ class TestFlood:
 
     def test_count_is_bounded(self, client):
         assert client.post("/orders/flood/order.events", json={"count": 99_999}).status_code == 422
+
+
+class TestCorrelationId:
+    """Every publish for one order carries that order's id, so a single order
+    can be followed across all five exchanges and every queue it fans out to."""
+
+    def test_every_publish_shares_one_correlation_id(self, client, channel):
+        response = client.post("/orders/publish", json={})
+        order_id = response.json()["order_id"]
+
+        ids = {c.kwargs["properties"].correlation_id
+               for c in channel.basic_publish.call_args_list}
+        assert ids == {order_id}
+
+    def test_correlation_id_spans_all_five_exchange_types(self, client, channel):
+        response = client.post("/orders/publish", json={"region": "EU"})
+        order_id = response.json()["order_id"]
+
+        by_exchange = {}
+        for call in channel.basic_publish.call_args_list:
+            by_exchange[call.kwargs["exchange"]] = call.kwargs["properties"].correlation_id
+
+        for exchange in ("", "order.events", "logs.info",
+                         "notifications.topic", "orders.headers"):
+            assert by_exchange.get(exchange) == order_id, f"{exchange} lost the trace"
+
+    def test_each_order_in_a_batch_gets_its_own(self, client, channel):
+        response = client.post("/orders/batch", json={"count": 3})
+        expected = set(response.json()["order_ids"])
+
+        ids = {c.kwargs["properties"].correlation_id
+               for c in channel.basic_publish.call_args_list}
+        assert ids == expected

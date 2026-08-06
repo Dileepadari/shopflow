@@ -9,6 +9,7 @@
 A complete, runnable e-commerce backend where every service talks to every other
 service through RabbitMQ — and where you can break things on purpose and watch it recover.
 
+[![CI](https://github.com/Dileepadari/shopflow/actions/workflows/ci.yml/badge.svg)](https://github.com/Dileepadari/shopflow/actions/workflows/ci.yml)
 [![RabbitMQ](https://img.shields.io/badge/RabbitMQ-4.3-FF6600?logo=rabbitmq&logoColor=white)](https://www.rabbitmq.com/)
 [![Python](https://img.shields.io/badge/Python-3.13-3776AB?logo=python&logoColor=white)](https://www.python.org/)
 [![React](https://img.shields.io/badge/React-19-61DAFB?logo=react&logoColor=black)](https://react.dev/)

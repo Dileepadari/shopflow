@@ -30,5 +30,23 @@ export default defineConfig({
   build: {
     outDir: 'dist',
     sourcemap: false,
+    rollupOptions: {
+      output: {
+        // Recharts and its d3 dependencies dominate the bundle and change far
+        // less often than the dashboard code, so splitting them out keeps the
+        // app chunk small and cacheable across deploys.
+        // Rolldown (Vite 8) requires the function form here.
+        manualChunks(id) {
+          if (!id.includes('node_modules')) return undefined
+          if (id.includes('recharts') || id.includes('d3-') || id.includes('victory')) {
+            return 'charts'
+          }
+          if (id.includes('react-dom') || id.includes('/react/') || id.includes('scheduler')) {
+            return 'react'
+          }
+          return undefined
+        },
+      },
+    },
   },
 })

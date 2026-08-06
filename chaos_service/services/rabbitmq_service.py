@@ -74,9 +74,15 @@ class RabbitMQService:
         connection = self._connection()
         try:
             channel = connection.channel()
-            for _ in range(count):
-                channel.basic_publish(exchange="", routing_key=queue,
-                                      body=POISON_BODY, properties=build_properties())
+            for index in range(count):
+                # Tagged so the resulting dead letter records can be traced back
+                # to this injection - the body is deliberately undecodable, so
+                # there is no order id inside it to fall back on.
+                correlation_id = f"POISON-{uuid.uuid4().hex[:8]}-{index}"
+                channel.basic_publish(
+                    exchange="", routing_key=queue, body=POISON_BODY,
+                    properties=build_properties(correlation_id=correlation_id),
+                )
         except Exception as exc:
             raise ChaosError(f"Could not inject poison messages: {exc}") from exc
         finally:
@@ -90,10 +96,13 @@ class RabbitMQService:
         try:
             channel = connection.channel()
             for index in range(count):
-                body = json.dumps(self._flood_payload(queue, index)).encode()
-                channel.basic_publish(exchange=exchange, routing_key=routing_key,
-                                      body=body,
-                                      properties=build_properties(headers=headers))
+                payload = self._flood_payload(queue, index)
+                channel.basic_publish(
+                    exchange=exchange, routing_key=routing_key,
+                    body=json.dumps(payload).encode(),
+                    properties=build_properties(headers=headers,
+                                                correlation_id=payload["order_id"]),
+                )
         except Exception as exc:
             raise ChaosError(f"Could not flood {queue}: {exc}") from exc
         finally:

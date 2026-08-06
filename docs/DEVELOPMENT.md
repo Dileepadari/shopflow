@@ -312,6 +312,14 @@ queue ──fails──► nack(requeue=False) ──► DLX ──► dead_lett
 Expired messages are never retried: republishing into the same 60-second-TTL
 queue just expires again, burning the whole budget for nothing.
 
+### Log retention
+
+The three JSONL sinks (`dead_letters.jsonl`, `error_logs.jsonl`,
+`notification_audit.jsonl`) live on the shared volume and roll over at
+`LOG_MAX_BYTES`, keeping one previous generation as `<name>.1`. `read_records`
+and `count_records` span both, so a rollover never looks like data loss on the
+DLX Audit tab. Set `LOG_MAX_BYTES=0` to disable rotation.
+
 ### Guarded publishes
 
 Any publish that happens *around* an ack — the audit log on success, the error
@@ -410,13 +418,16 @@ that reads it.
 | `MESSAGE_TTL_MS` | `60000` | `_quorum_args` in `declarations.py` |
 | `LOG_LEVEL` | `INFO` | `logger.py` |
 | `LOG_DIR` | `/app/logs` | `jsonl.py` |
+| `LOG_MAX_BYTES` | `10485760` | `jsonl.py` — rolls a sink to `<name>.1`; `0` disables |
 | `CORS_ORIGINS` | `http://localhost:3000` | Both FastAPI apps |
+| `API_BIND_ADDRESS` | `127.0.0.1` | `docker-compose.yml` — interface the two APIs publish on |
 
 > Earlier versions of `.env.example` documented about a dozen variables that no
 > code read — `ENABLE_METRICS`, `PRODUCER_DELIVERY_MODE`,
 > `CONSUMER_RECONNECT_DELAY_SECONDS`, the `LOCUST_*` group and others, plus three
-> "performance profiles" built from them. They have been removed. Everything
-> listed above is genuinely wired up.
+> "performance profiles" built from them. They have been removed, except
+> `LOG_MAX_SIZE_BYTES`, which was worth having and is now implemented as
+> `LOG_MAX_BYTES`. Everything listed above is genuinely wired up.
 
 ---
 
@@ -493,6 +504,20 @@ pytest inserts `tests/unit` on the path rather than the repository root.
 Integration tests skip themselves when the broker is unreachable, so a plain
 `pytest` run is always safe.
 
+### Continuous integration
+
+`.github/workflows/ci.yml` runs four jobs on every push and pull request:
+
+| Job | What it does |
+|---|---|
+| `python` | `ruff check` plus the unit suite with coverage |
+| `frontend` | `npm ci`, `eslint`, `npm run build` |
+| `compose` | `docker compose config` and a real `haproxy -c` config parse |
+| `integration` | Builds and starts all 24 containers, runs `validate.sh` and the integration suite, then tears the stack down |
+
+The integration job dumps the last 100 lines of container logs when it fails,
+which is usually enough to see which service refused to start.
+
 ---
 
 ## Code style
@@ -553,24 +578,42 @@ proxied by nginx.
 
 ---
 
+## Tracing an order
+
+Every publish for one order carries that order's id as the AMQP
+`correlation_id`, and each consumer propagates it onto the audit and error log
+messages it emits. One order is therefore followable across all five exchanges,
+every queue it fans out to, and into the dead letter record if it fails.
+
+From the broker's management UI, or in the DLX Audit tab, which shows it on each
+record. In code:
+
+```python
+build_properties(correlation_id=order_id)      # producers set it
+self._correlation_id(properties, payload)      # consumers read it, with a
+                                               # fallback to payload["order_id"]
+```
+
+---
+
 ## Known gaps
 
 Honest list of what is not done.
 
-- **No correlation ID threading.** `build_properties` accepts a
-  `correlation_id`, but `publish_order` does not yet set it to the order id, so
-  you cannot trace a single order across all five exchanges from the broker's
-  side. This is the highest-value next addition.
-- **The JSONL sinks never rotate.** `dead_letters.jsonl` and friends grow
-  unbounded on the shared volume. `read_records` only reads the tail so the API
-  stays fast, but disk use is unbounded. Fine for a demo, not for a long-running
-  deployment.
-- **No authentication on either FastAPI service.** Both are intended for
-  localhost only.
-- **The frontend bundle is a single ~630 kB chunk.** Recharts dominates it. Code
-  splitting would help if this ever needed to load over a slow link.
-- **No CI pipeline.** `pytest`, `ruff` and `npm run build` all pass and would be
-  straightforward to wire into GitHub Actions.
+- **No authentication on either FastAPI service.** This is deliberate — adding
+  auth would mean putting credentials in the dashboard, and the whole point is
+  a zero-setup demo. Instead both services bind to **loopback only**
+  (`API_BIND_ADDRESS`, default `127.0.0.1`), so they are not reachable from the
+  LAN. The dashboard talks to them over the internal Docker network by service
+  name, so it is unaffected. If you set `API_BIND_ADDRESS=0.0.0.0`, understand
+  that you are exposing unauthenticated container lifecycle control.
+- **The dashboard has no automated UI tests.** Behaviour is covered at the API
+  level and the bundle is lint- and build-checked in CI, but there is no
+  Playwright or component test suite.
+- **`ShopFlow_PRD.pdf` is not regenerated.** It documents Team 9's v1.0.0 as
+  delivered and deliberately still describes the original topology, including
+  the retry semantics that turned out not to work (see the note under
+  Reliability model).
 
 ---
 

@@ -174,3 +174,49 @@ class TestLifecycle:
 
         assert consumer.should_stop is True
         consumer.channel.stop_consuming.assert_not_called()
+
+
+class TestCorrelationId:
+    """One order must be traceable across all five exchanges and every queue."""
+
+    def test_audit_log_carries_the_incoming_correlation_id(
+        self, mock_channel, method, properties
+    ):
+        properties.correlation_id = "ORD-TRACE-1"
+        RecordingConsumer()._on_message(mock_channel, method, properties, VALID_BODY)
+
+        published = [c for c in mock_channel.basic_publish.call_args_list
+                     if c.kwargs["exchange"] == "logs.info"]
+        assert published[0].kwargs["properties"].correlation_id == "ORD-TRACE-1"
+
+    def test_error_log_carries_the_incoming_correlation_id(
+        self, mock_channel, method, properties
+    ):
+        properties.correlation_id = "ORD-TRACE-2"
+        consumer = RecordingConsumer(boom=ValueError("nope"))
+        consumer._on_message(mock_channel, method, properties, VALID_BODY)
+
+        published = [c for c in mock_channel.basic_publish.call_args_list
+                     if c.kwargs["exchange"] == "logs.error"]
+        assert published[0].kwargs["properties"].correlation_id == "ORD-TRACE-2"
+
+    def test_falls_back_to_the_order_id_when_unset(
+        self, mock_channel, method, properties
+    ):
+        """Messages published without a correlation id are still traceable."""
+        properties.correlation_id = None
+        RecordingConsumer()._on_message(mock_channel, method, properties, VALID_BODY)
+
+        published = [c for c in mock_channel.basic_publish.call_args_list
+                     if c.kwargs["exchange"] == "logs.info"]
+        assert published[0].kwargs["properties"].correlation_id == "ORD-1"
+
+    def test_undecodable_message_still_reports_its_correlation_id(
+        self, mock_channel, method, properties
+    ):
+        properties.correlation_id = "ORD-TRACE-3"
+        RecordingConsumer()._on_message(mock_channel, method, properties, POISON_BODY)
+
+        published = [c for c in mock_channel.basic_publish.call_args_list
+                     if c.kwargs["exchange"] == "logs.error"]
+        assert published[0].kwargs["properties"].correlation_id == "ORD-TRACE-3"

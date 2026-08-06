@@ -81,23 +81,44 @@ class BaseConsumer:
 
     # ------------------------------------------------------------- publishing
 
-    def _safe_publish(self, channel, exchange: str, routing_key: str, body: bytes) -> None:
+    def _safe_publish(self, channel, exchange: str, routing_key: str, body: bytes,
+                      correlation_id: str | None = None) -> None:
         """Best-effort publish that can never prevent the caller from ACK/NACKing.
 
         An unguarded publish here would escape into pika's dispatch loop and
         leave the in-flight message unacked forever.
         """
         try:
-            channel.basic_publish(exchange=exchange, routing_key=routing_key,
-                                  body=body, properties=build_properties())
+            channel.basic_publish(
+                exchange=exchange, routing_key=routing_key, body=body,
+                properties=build_properties(correlation_id=correlation_id),
+            )
         except Exception as exc:
             self.logger.warning("[%s] Could not publish to %s: %s",
                                 self.consumer_tag, exchange, exc)
 
     # ---------------------------------------------------------- message entry
 
+    @staticmethod
+    def _correlation_id(properties, payload: dict | None = None) -> str | None:
+        """The order id this message belongs to.
+
+        Producers set it on every publish, so one order can be followed across
+        all five exchanges and every queue it fans out to. Falls back to the
+        payload for messages published without it.
+        """
+        existing = getattr(properties, "correlation_id", None)
+        if existing:
+            return existing
+        if payload:
+            order_id = payload.get("order_id")
+            if order_id and order_id != "N/A":
+                return order_id
+        return None
+
     def _on_message(self, channel, method, properties, body):
         order_id = "N/A"
+        correlation_id = self._correlation_id(properties)
         try:
             payload = decode(body)
         except Exception as exc:
@@ -105,9 +126,12 @@ class BaseConsumer:
             # straight to the DLX for forensic review (FR-08).
             self.logger.error("[%s] Undecodable message, dead-lettering: %s",
                               self.consumer_tag, exc)
-            self._report_error(channel, order_id, f"decode failed: {exc}")
+            self._report_error(channel, order_id, f"decode failed: {exc}",
+                               correlation_id)
             channel.basic_nack(delivery_tag=method.delivery_tag, requeue=False)
             return
+
+        correlation_id = self._correlation_id(properties, payload)
 
         try:
             order_id = payload.get("order_id", "N/A")
@@ -117,7 +141,7 @@ class BaseConsumer:
         except Exception as exc:
             self.logger.error("[%s] Error processing %s: %s",
                               self.consumer_tag, order_id, exc)
-            self._report_error(channel, order_id, str(exc))
+            self._report_error(channel, order_id, str(exc), correlation_id)
             # requeue=False routes the message to the dead letter exchange, which
             # increments its x-death count. dead_letter_consumer owns the retry
             # budget from there (FR-07). Requeueing instead would never increment
@@ -135,9 +159,10 @@ class BaseConsumer:
                 "level": "info",
                 "service": "consumer",
                 "message": "Message processed successfully",
-            }).encode())
+            }).encode(), correlation_id)
 
-    def _report_error(self, channel, order_id: str, message: str) -> None:
+    def _report_error(self, channel, order_id: str, message: str,
+                      correlation_id: str | None = None) -> None:
         if not self.emit_error_log:
             return
         self._safe_publish(channel, "logs.error", "error", json.dumps({
@@ -146,7 +171,7 @@ class BaseConsumer:
             "level": "error",
             "service": "consumer",
             "message": message,
-        }).encode())
+        }).encode(), correlation_id)
 
     # ----------------------------------------------------------------- runner
 
@@ -187,12 +212,15 @@ class BaseConsumer:
                     self.consumer_tag, tag, self.connection_refresh_interval)
 
                 self.connection_start_time = time.time()
+                # Jitter so 16 consumers started by the same `compose up` do not
+                # all drop their connections in the same instant every cycle.
+                refresh_after = self.connection_refresh_interval * random.uniform(0.85, 1.15)
                 while not self.should_stop:
                     self.connection.process_data_events(time_limit=1)
-                    if time.time() - self.connection_start_time > self.connection_refresh_interval:
+                    if time.time() - self.connection_start_time > refresh_after:
                         self.logger.info(
                             "[%s] Connection age exceeds %ds - reconnecting to rebalance.",
-                            self.consumer_tag, self.connection_refresh_interval)
+                            self.consumer_tag, round(refresh_after))
                         break
 
             except pika.exceptions.AMQPConnectionError as exc:

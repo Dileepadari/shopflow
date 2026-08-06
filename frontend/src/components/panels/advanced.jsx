@@ -115,6 +115,11 @@ export function DLXAuditLogPanel({ dlxHistory = [], loading, error }) {
                           ? new Date(record.received_at).toLocaleString()
                           : 'time unknown'}
                       </p>
+                      {record.correlation_id && (
+                        <p className="text-xs text-muted mt-0.5">
+                          order <Mono className="text-brand">{record.correlation_id}</Mono>
+                        </p>
+                      )}
                     </div>
                     <div className="flex items-center gap-1.5">
                       <Badge

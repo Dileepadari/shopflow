@@ -83,16 +83,16 @@ def publish_order(region: str = "US", fmt: str = "json",
             # payment message is confirmed by the broker. mandatory=True turns an
             # unroutable message into an exception rather than a silent drop.
             ch.basic_publish(exchange="", routing_key="payment_queue", body=body,
-                             properties=build_properties(), mandatory=True)
+                             properties=build_properties(correlation_id=order_id), mandatory=True)
             logger.info("Order %s queued for payment.", order_id)
 
             ch.basic_publish(exchange="", routing_key="inventory_queue", body=body,
-                             properties=build_properties(), mandatory=True)
+                             properties=build_properties(correlation_id=order_id), mandatory=True)
             logger.info("Order %s queued for inventory.", order_id)
 
             # FR-02 fanout: email, SMS and push all receive this.
             ch.basic_publish(exchange="order.events", routing_key="", body=body,
-                             properties=build_properties())
+                             properties=build_properties(correlation_id=order_id))
 
             # FR-03 direct log routing.
             ch.basic_publish(exchange="logs.info", routing_key="info",
@@ -102,17 +102,19 @@ def publish_order(region: str = "US", fmt: str = "json",
                                  "service": "order_producer",
                                  "message": f"Order {order_id} published successfully",
                              }).encode(),
-                             properties=build_properties())
+                             properties=build_properties(correlation_id=order_id))
 
             # FR-04 topic routing across every priority/channel combination.
             for key in NOTIFICATION_ROUTING_KEYS:
                 ch.basic_publish(exchange="notifications.topic", routing_key=key,
-                                 body=body, properties=build_properties())
+                                 body=body,
+                                 properties=build_properties(correlation_id=order_id))
 
             # FR-05 headers routing by region and format.
             ch.basic_publish(exchange="orders.headers", routing_key="", body=body,
                              properties=build_properties(
-                                 headers={"region": region, "format": fmt}),
+                                 headers={"region": region, "format": fmt},
+                                 correlation_id=order_id),
                              mandatory=True)
 
         except Exception as exc:
@@ -127,7 +129,7 @@ def publish_order(region: str = "US", fmt: str = "json",
                                      "service": "order_producer",
                                      "message": f"Order {order_id} failed to publish: {exc}",
                                  }).encode(),
-                                 properties=build_properties())
+                                 properties=build_properties(correlation_id=order_id))
             except Exception:
                 logger.debug("Could not record the publish failure for %s.", order_id)
             raise

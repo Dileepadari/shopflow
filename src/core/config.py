@@ -26,6 +26,7 @@ class Settings:
     message_ttl_ms: int
     log_dir: Path
     log_level: str
+    log_max_bytes: int
     dlx_exchange: str = "dead.letter.exchange"
     dlx_routing_key_prefix: str = "dlx"
 
@@ -49,6 +50,9 @@ class Settings:
             # container, where /app/logs does not exist.
             log_dir=Path(os.getenv("LOG_DIR", "/app/logs")),
             log_level=os.getenv("LOG_LEVEL", "INFO").upper(),
+            # Size at which a JSONL sink rolls over to <name>.1. 0 disables
+            # rotation. Default 10 MiB.
+            log_max_bytes=int(os.getenv("LOG_MAX_BYTES", str(10 * 1024 * 1024))),
         )
 
 

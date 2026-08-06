@@ -164,3 +164,56 @@ class TestContainerRegistry:
 class TestHealth:
     def test_reports_ok(self, client):
         assert client.get("/health").json()["status"] == "ok"
+
+
+class TestStatusResilience:
+    """One misbehaving container must not blank the whole status response."""
+
+    @staticmethod
+    def _container(name, image="shopflow-py", status="running"):
+        c = MagicMock()
+        c.name = name
+        c.status = status
+        c.attrs = {"Config": {"Image": image}}
+        # Accessing .image triggers a second API call in the real SDK and 404s
+        # when the image has been pruned after a rebuild.
+        type(c).image = property(
+            lambda _self: (_ for _ in ()).throw(RuntimeError("404: No such image"))
+        )
+        return c
+
+    def _service(self, containers_list):
+        from chaos_service.services.docker_service import DockerService
+
+        svc = DockerService()
+        svc._client = MagicMock()
+        svc._client.containers.list.return_value = containers_list
+        return svc
+
+    def test_image_name_comes_from_the_container_payload(self):
+        svc = self._service([self._container("payment_consumer_1", image="shopflow-pay")])
+        status = svc.get_all_status()
+        assert status["payment_consumer_1"]["image"] == "shopflow-pay"
+
+    def test_a_pruned_image_does_not_break_the_response(self):
+        """Regression: dereferencing container.image after a rebuild 404'd and
+        wiped the status of all 23 containers, not just the rebuilt one."""
+        svc = self._service([
+            self._container("payment_consumer_1"),
+            self._container("chaos_service"),
+            self._container("email_consumer"),
+        ])
+        status = svc.get_all_status()
+        assert set(status) == {"payment_consumer_1", "chaos_service", "email_consumer"}
+        assert all(v["state"] == "running" for v in status.values())
+
+    def test_containers_outside_the_allow_list_are_ignored(self):
+        svc = self._service([
+            self._container("payment_consumer_1"),
+            self._container("some_other_project"),
+        ])
+        assert set(self._service([
+            self._container("payment_consumer_1"),
+            self._container("some_other_project"),
+        ]).get_all_status()) == {"payment_consumer_1"}
+        assert "some_other_project" not in svc.get_all_status()

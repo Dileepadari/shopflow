@@ -341,7 +341,11 @@ services:
       shopflow_net:
         ipv4_address: 172.20.0.40
     ports:
-      - "${PRODUCER_API_PORT:-8090}:8090"
+      # Bound to the loopback interface by default. The dashboard reaches this
+      # over the internal network by service name, so publishing it on all
+      # interfaces only exposes an unauthenticated write API to the LAN.
+      # Set API_BIND_ADDRESS=0.0.0.0 to opt in.
+      - "${API_BIND_ADDRESS:-127.0.0.1}:${PRODUCER_API_PORT:-8090}:8090"
     environment:
       <<: *python-env
       CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:3000}
@@ -375,7 +379,9 @@ services:
       shopflow_net:
         ipv4_address: 172.20.0.20
     ports:
-      - "${CHAOS_SERVICE_PORT:-8080}:8080"
+      # Loopback only by default - this service has the Docker socket mounted,
+      # so LAN exposure would hand out container lifecycle control.
+      - "${API_BIND_ADDRESS:-127.0.0.1}:${CHAOS_SERVICE_PORT:-8080}:8080"
     environment:
       <<: *python-env
       DOCKER_HOST: unix:///var/run/docker.sock

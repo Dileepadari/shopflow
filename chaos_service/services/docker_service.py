@@ -103,16 +103,36 @@ class DockerService:
     def unpause_container(self, name: str) -> dict:
         return self._action(name, "unpaused", "unpause")
 
+    @staticmethod
+    def _image_name(container) -> str:
+        """Image name taken from the container's own payload.
+
+        Deliberately avoids `container.image`, which the SDK resolves with a
+        second API call. After a rebuild the previous image is untagged and
+        pruned, so a still-running container references an image id that no
+        longer exists and that lookup raises 404 - which used to blank the
+        status of every container, not just the affected one.
+        """
+        try:
+            return container.attrs.get("Config", {}).get("Image") or "unknown"
+        except Exception:
+            return "unknown"
+
     def get_all_status(self) -> dict:
         self._ensure_connected()
-        status = {
-            c.name: {
-                "state": c.status,
-                "image": c.image.tags[0] if c.image.tags else "unknown",
-            }
-            for c in self._client.containers.list(all=True)
-            if c.name in containers.ALL
-        }
+        status = {}
+        for container in self._client.containers.list(all=True):
+            if container.name not in containers.ALL:
+                continue
+            try:
+                status[container.name] = {
+                    "state": container.status,
+                    "image": self._image_name(container),
+                }
+            except Exception as exc:
+                # One unhealthy container must never hide the other 22.
+                logger.warning("Could not read status for %s: %s", container.name, exc)
+                status[container.name] = {"state": "unknown", "image": "unknown"}
         logger.info("Retrieved status for %d containers", len(status))
         return status
 

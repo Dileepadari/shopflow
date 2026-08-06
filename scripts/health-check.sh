@@ -67,8 +67,16 @@ queues=$(curl -s -u "$RABBIT_USER:$RABBIT_PASS" --max-time 5 "$MGMT/queues/$VHOS
     | python3 -c "import sys,json; print(len(json.load(sys.stdin)))" 2>/dev/null || echo 0)
 [ "$queues" = "14" ] && ok "14 queues declared" || bad "$queues queues declared (expected 14)"
 
-consumers=$(curl -s -u "$RABBIT_USER:$RABBIT_PASS" --max-time 5 "$MGMT/consumers/$VHOST" \
-    | python3 -c "import sys,json; print(len(json.load(sys.stdin)))" 2>/dev/null || echo 0)
+# Consumers refresh their AMQP connection every 5 minutes so HAProxy can
+# rebalance, which briefly unsubscribes one at a time. A single sample can
+# therefore catch 15 of 16 on a perfectly healthy system - retry before failing.
+consumers=0
+for _ in $(seq 1 10); do
+    consumers=$(curl -s -u "$RABBIT_USER:$RABBIT_PASS" --max-time 5 "$MGMT/consumers/$VHOST" \
+        | python3 -c "import sys,json; print(len(json.load(sys.stdin)))" 2>/dev/null || echo 0)
+    [ "$consumers" -ge 16 ] 2>/dev/null && break
+    sleep 2
+done
 [ "$consumers" -ge 16 ] 2>/dev/null && ok "$consumers consumers subscribed" \
     || bad "$consumers consumers subscribed (expected at least 16)"
 
