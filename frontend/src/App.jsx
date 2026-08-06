@@ -1,25 +1,28 @@
 /**
  * App.jsx - ShopFlow dashboard root.
- * Real-time monitoring and chaos control for RabbitMQ distributed messaging system.
+ * Real-time monitoring and chaos control for the RabbitMQ messaging system.
  */
-import React, { useState, useEffect } from 'react'
+import { useState } from 'react'
+import { Moon, Sun } from 'lucide-react'
+
+import { ErrorBoundary } from './components/ErrorBoundary'
+import { ChaosControlPanel } from './components/chaos/index'
 import {
   ClusterHealthPanel,
-  QueueMonitorPanel,
-  ExchangeMapPanel,
   ConsumerStatusPanel,
+  ExchangeMapPanel,
+  QueueMonitorPanel,
 } from './components/panels/index'
 import {
+  ConnectionMapPanel,
   DLXAuditLogPanel,
   MessagePublisherPanel,
-  ConnectionMapPanel,
-  OverviewPanel,
   OrderSenderPanel,
+  OverviewPanel,
 } from './components/panels/advanced'
-import { ChaosControlPanel } from './components/chaos/index'
-import * as rabbitmq from './api/rabbitmq'
-import * as chaos from './api/chaos'
-import { useInterval } from './hooks/useInterval'
+import { StatusDot } from './components/ui/index'
+import { useDashboardData } from './hooks/useDashboardData'
+import { useTheme } from './hooks/useTheme'
 
 const TABS = [
   { id: 'overview', label: 'Overview' },
@@ -35,188 +38,159 @@ const TABS = [
 
 export default function App() {
   const [active, setActive] = useState('overview')
-  const [isClusterHealthOpen, setIsClusterHealthOpen] = useState(true)
-  const [nodes, setNodes] = useState([])
-  const [overview, setOverview] = useState({})
-  const [queues, setQueues] = useState([])
-  const [exchanges, setExchanges] = useState([])
-  const [bindings, setBindings] = useState([])
-  const [consumers, setConsumers] = useState([])
-  const [connections, setConnections] = useState([])
-  const [dlxHistory, setDlxHistory] = useState([])
-  const [messageHistory, setMessageHistory] = useState([])
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState(null)
+  const [clusterHealthOpen, setClusterHealthOpen] = useState(true)
+  const { theme, toggle } = useTheme()
+  const {
+    nodes,
+    overview,
+    queues,
+    exchanges,
+    bindings,
+    consumers,
+    connections,
+    dlxHistory,
+    status,
+    messageHistory,
+    loading,
+    error,
+    pollMs,
+  } = useDashboardData()
 
-  // Fetch all data every 2 seconds
-  useInterval(async () => {
-    try {
-      const [nodesData, overviewData, queuesData, exchangesData, bindingsData, consumersData, connsData, dlxData] =
-        await Promise.all([
-          rabbitmq.fetchNodes(),
-          rabbitmq.fetchOverview(),
-          rabbitmq.fetchQueues(),
-          rabbitmq.fetchExchanges(),
-          rabbitmq.fetchBindings(),
-          rabbitmq.fetchConsumers(),
-          rabbitmq.fetchConnections(),
-          chaos.getDlxHistory(50),
-        ])
-
-      setNodes(nodesData || [])
-      setOverview(overviewData || {})
-      setQueues(queuesData || [])
-      setExchanges(exchangesData || [])
-      setBindings(bindingsData || [])
-      setConsumers(consumersData || [])
-      setConnections(connsData || [])
-      setDlxHistory(dlxData || [])
-      setError(null)
-      setLoading(false)
-
-      // Update message history (keep last 30 entries)
-      setMessageHistory((prev) => {
-        const newEntry = {
-          time: new Date().toLocaleTimeString(),
-          publish: overviewData?.object_totals?.exchanges || 0,
-          ack: overviewData?.queue_totals?.messages_ready || 0,
-          nack: 0,
-        }
-        return [...prev, newEntry].slice(-30)
-      })
-    } catch (err) {
-      setError(err.message || 'Failed to fetch data')
-      setLoading(false)
-    }
-  }, 2000)
-
-  // Initial fetch
-  useEffect(() => {
-    ;(async () => {
-      try {
-        const [nodesData, overviewData, queuesData, exchangesData, bindingsData, consumersData, connsData, dlxData] =
-          await Promise.all([
-            rabbitmq.fetchNodes(),
-            rabbitmq.fetchOverview(),
-            rabbitmq.fetchQueues(),
-            rabbitmq.fetchExchanges(),
-            rabbitmq.fetchBindings(),
-            rabbitmq.fetchConsumers(),
-            rabbitmq.fetchConnections(),
-            chaos.getDlxHistory(50),
-          ])
-
-        setNodes(nodesData || [])
-        setOverview(overviewData || {})
-        setQueues(queuesData || [])
-        setExchanges(exchangesData || [])
-        setBindings(bindingsData || [])
-        setConsumers(consumersData || [])
-        setConnections(connsData || [])
-        setDlxHistory(dlxData || [])
-        setLoading(false)
-      } catch (err) {
-        setError(err.message || 'Failed to fetch data')
-        setLoading(false)
-      }
-    })()
-  }, [])
+  const runningNodes = nodes.filter((n) => n.running).length
+  const clusterHealthy = nodes.length > 0 && runningNodes === nodes.length
 
   const renderPanel = () => {
     switch (active) {
-      case 'overview':
-        return <OverviewPanel overview={overview} messageHistory={messageHistory} loading={loading} error={error} />
-
       case 'queues':
         return <QueueMonitorPanel queues={queues} loading={loading} error={error} />
-
       case 'exchanges':
-        return <ExchangeMapPanel exchanges={exchanges} bindings={bindings} loading={loading} error={error} />
-
+        return (
+          <ExchangeMapPanel
+            exchanges={exchanges}
+            bindings={bindings}
+            loading={loading}
+            error={error}
+          />
+        )
       case 'consumers':
-        return <ConsumerStatusPanel consumers={consumers} loading={loading} error={error} />
-
+        return (
+          <ConsumerStatusPanel
+            consumers={consumers}
+            status={status}
+            loading={loading}
+            error={error}
+          />
+        )
       case 'connections':
         return <ConnectionMapPanel connections={connections} loading={loading} error={error} />
-
       case 'dlx':
         return <DLXAuditLogPanel dlxHistory={dlxHistory} loading={loading} error={error} />
-
       case 'orders':
         return <OrderSenderPanel />
-
       case 'publisher':
         return <MessagePublisherPanel exchanges={exchanges} />
-
       case 'chaos':
-        return <ChaosControlPanel queues={queues} exchanges={exchanges} />
-
+        return <ChaosControlPanel queues={queues} status={status} />
+      case 'overview':
       default:
-        return <OverviewPanel overview={overview} messageHistory={messageHistory} loading={loading} error={error} />
+        return (
+          <OverviewPanel
+            overview={overview}
+            queues={queues}
+            messageHistory={messageHistory}
+            loading={loading}
+            error={error}
+          />
+        )
     }
   }
 
   return (
-    <div className="min-h-screen bg-gray-950 flex flex-col">
-      {/* Header */}
-      <header className="border-b border-gray-800 px-3 sm:px-6 py-3 sm:py-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 sm:gap-0">
-        <div>
-          <h1 className="text-xl sm:text-2xl font-bold text-white">
-            <span className="text-orange-500">Shop</span>Flow
-          </h1>
-          <p className="text-xs text-gray-500 mt-1">
-            Distributed Order Processing · RabbitMQ Dashboard
-          </p>
+    <div className="min-h-screen bg-page flex flex-col">
+      <header className="border-b border-line px-3 sm:px-6 py-3 flex items-center justify-between gap-3">
+        <div className="flex items-center gap-3 min-w-0">
+          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-[var(--radius)] bg-brand/10 p-1.5">
+            <img
+              src="/adk-mark.png"
+              alt="ADK Dev"
+              className="h-full w-full object-contain logo-mono"
+            />
+          </div>
+          <div className="min-w-0">
+            <h1 className="text-lg sm:text-xl font-semibold text-content leading-tight">
+              ShopFlow
+            </h1>
+            <p className="text-xs text-muted truncate">
+              Distributed Order Processing · RabbitMQ
+            </p>
+          </div>
         </div>
-        <div className="flex flex-col items-end text-xs">
-          <p className="text-gray-400">Team 9 - Three Musketeers</p>
-          <p className="text-gray-600 mt-1">
-            {nodes.filter((n) => n.running).length}/{nodes.length} nodes
-            <span className="ml-2 inline-block w-2 h-2 bg-green-500 rounded-full animate-pulse" />
-          </p>
+
+        <div className="flex items-center gap-3 sm:gap-4">
+          <div className="flex items-center gap-2 text-xs text-muted">
+            <StatusDot status={clusterHealthy ? 'healthy' : nodes.length ? 'warning' : 'offline'} />
+            <span className="tabular-nums whitespace-nowrap">
+              {runningNodes}/{nodes.length || 3} nodes
+            </span>
+          </div>
+          <button
+            type="button"
+            onClick={toggle}
+            aria-label={`Switch to ${theme === 'dark' ? 'light' : 'dark'} theme`}
+            className="p-2 rounded-[var(--radius)] text-muted hover:text-content hover:bg-surface-muted transition-colors"
+          >
+            {theme === 'dark' ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
+          </button>
         </div>
       </header>
 
-      {/* Navigation Tabs */}
-      <nav className="border-b border-gray-800 px-3 sm:px-6 flex flex-wrap gap-1">
-        {TABS.map((t) => (
+      <nav
+        className="border-b border-line px-3 sm:px-6 flex gap-1 overflow-x-auto scrollbar-thin"
+        aria-label="Dashboard sections"
+      >
+        {TABS.map((tab) => (
           <button
-            key={t.id}
-            onClick={() => setActive(t.id)}
-            className={`px-2 sm:px-4 py-2 sm:py-3 text-xs sm:text-sm font-semibold whitespace-nowrap transition-colors ${
-              active === t.id
-                ? 'text-orange-400 border-b-2 border-orange-500'
-                : 'text-gray-400 hover:text-gray-200'
+            key={tab.id}
+            type="button"
+            onClick={() => setActive(tab.id)}
+            aria-current={active === tab.id ? 'page' : undefined}
+            className={`px-3 py-3 text-xs sm:text-sm font-medium whitespace-nowrap border-b-2 transition-colors ${
+              active === tab.id
+                ? 'text-brand border-brand'
+                : 'text-muted border-transparent hover:text-content'
             }`}
           >
-            {t.label}
+            {tab.label}
           </button>
         ))}
       </nav>
 
-      {/* Main Content */}
       <main className="flex-1 p-3 sm:p-6 overflow-y-auto">
         <div className="max-w-7xl mx-auto space-y-4 sm:space-y-6">
-          {/* Show cluster health on all pages */}
           {active !== 'overview' && (
-            <ClusterHealthPanel 
-              nodes={nodes} 
-              loading={loading} 
-              error={error}
-              isOpen={isClusterHealthOpen}
-              onToggle={() => setIsClusterHealthOpen(!isClusterHealthOpen)}
-            />
+            <ErrorBoundary>
+              <ClusterHealthPanel
+                nodes={nodes}
+                loading={loading}
+                error={error}
+                isOpen={clusterHealthOpen}
+                onToggle={() => setClusterHealthOpen((open) => !open)}
+              />
+            </ErrorBoundary>
           )}
-
-          {/* Active panel */}
-          {renderPanel()}
+          <ErrorBoundary key={active}>{renderPanel()}</ErrorBoundary>
         </div>
       </main>
 
-      {/* Footer */}
-      <footer className="border-t border-gray-800 px-3 sm:px-6 py-2 sm:py-3 text-xs text-gray-600 flex flex-col sm:flex-row justify-between gap-1 sm:gap-0">
-        <p>Real-time updates every 2 seconds</p>
-        <p className="text-center sm:text-right">© 2025 Team 9 - IIITH Distributed Systems Course</p>
+      <footer className="border-t border-line px-3 sm:px-6 py-3 text-xs text-muted flex flex-col sm:flex-row justify-between gap-1">
+        <p>Live — refreshed every {pollMs / 1000} seconds</p>
+        <p className="sm:text-right">
+          © 2026 ADK Dev · Dileep Adari
+          <span className="text-subtle">
+            {' '}
+            · originally built by Team 9 (Three Musketeers), IIITH Distributed Systems
+          </span>
+        </p>
       </footer>
     </div>
   )

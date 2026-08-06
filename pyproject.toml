@@ -1,0 +1,48 @@
+[project]
+name = "shopflow"
+version = "2.0.0"
+description = "Distributed order processing and notification system built on RabbitMQ."
+requires-python = ">=3.11"
+
+[tool.pytest.ini_options]
+# Without this, a bare `pytest tests/unit/` fails with
+# ModuleNotFoundError: No module named 'src' - pytest inserts tests/unit on the
+# path, not the repository root, because there are no __init__.py files.
+pythonpath = ["."]
+testpaths = ["tests"]
+addopts = "-ra --strict-markers"
+markers = [
+    "integration: needs a running RabbitMQ cluster (deselect with -m 'not integration')",
+]
+filterwarnings = ["error::DeprecationWarning:src.*"]
+
+[tool.coverage.run]
+source = ["src", "producer_api", "chaos_service"]
+omit = ["*/__main__.py"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+exclude = [".venv", "frontend", "node_modules"]
+
+[tool.ruff.lint]
+select = [
+    "E",    # pycodestyle
+    "F",    # pyflakes
+    "I",    # isort
+    "UP",   # pyupgrade
+    "B",    # bugbear
+    "C4",   # comprehensions
+    "SIM",  # simplify
+]
+ignore = [
+    "E501",   # line length is handled by the formatter
+    "B008",   # FastAPI's Depends() in defaults is idiomatic
+]
+
+[tool.ruff.lint.per-file-ignores]
+# Tests may shadow builtins and use assert-heavy style.
+"tests/*" = ["B011"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["src", "producer_api", "chaos_service"]

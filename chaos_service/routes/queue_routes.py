@@ -1,75 +1,75 @@
 """Queue-level chaos: purge / poison / flood / drop-all / restore-all."""
-from fastapi import APIRouter
-from pydantic import BaseModel
-from typing import Optional
-from chaos_service.services.rabbitmq_service import RabbitMQService
+from fastapi import APIRouter, HTTPException
+from pydantic import BaseModel, Field
+
 from chaos_service.services.docker_service import DockerService
+from chaos_service.services.rabbitmq_service import ChaosError, RabbitMQService
+from src.core import management
 
 router = APIRouter(tags=["Queue Chaos"])
-rmq_svc    = RabbitMQService()
+rmq_svc = RabbitMQService()
 docker_svc = DockerService()
+
+MAX_FLOOD = 5000
+MAX_POISON = 500
+
 
 class PurgeRequest(BaseModel):
     queue: str
 
+
 class PoisonRequest(BaseModel):
     queue: str
-    count: int = 1
+    count: int = Field(default=1, ge=1, le=MAX_POISON)
+
 
 class FloodRequest(BaseModel):
-    queue:   str
-    count:   int = 100
+    queue: str
+    count: int = Field(default=100, ge=1, le=MAX_FLOOD)
 
 
-# Queue to Exchange mapping - determines where each queue receives messages
-QUEUE_EXCHANGE_MAP = {
-    # Work queues (default exchange)
-    "payment_queue":    ("", "payment_queue"),
-    "inventory_queue":  ("", "inventory_queue"),
-    # Fanout exchange
-    "email_queue":      ("order.events", ""),
-    "sms_queue":        ("order.events", ""),
-    "push_queue":       ("order.events", ""),
-    # Direct exchanges
-    "log_error_queue":  ("logs.error", "error"),
-    "log_info_queue":   ("logs.info", "info"),
-    # Topic exchange
-    "notif_email_queue":  ("notifications.topic", "notification.email.test"),
-    "notif_sms_queue":    ("notifications.topic", "notification.sms.urgent"),
-    "notif_audit_queue":  ("notifications.topic", "#"),
-    # Headers exchange
-    "eu_queue":         ("orders.headers", ""),
-    "us_queue":         ("orders.headers", ""),
-    "xml_legacy_queue": ("orders.headers", ""),
-    # Dead letter queue
-    "dead_letter_queue": ("", "dead_letter_queue"),
-}
+def _run(fn, *args):
+    """Turn chaos failures into real HTTP statuses.
+
+    These endpoints used to return 200 with an error string in the body, so the
+    dashboard could not tell success from failure.
+    """
+    try:
+        return fn(*args)
+    except ChaosError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except management.ManagementError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+
 
 @router.post("/queue/purge")
 def purge_queue(req: PurgeRequest):
+    """Drop every message in a queue."""
     return {"action": "purge", "queue": req.queue,
-            "result": rmq_svc.purge_queue(req.queue)}
+            "result": _run(rmq_svc.purge_queue, req.queue)}
+
 
 @router.post("/queue/poison")
 def inject_poison(req: PoisonRequest):
+    """Inject undecodable messages, which dead-letter after their retries."""
     return {"action": "poison", "queue": req.queue, "count": req.count,
-            "result": rmq_svc.inject_poison_messages(req.queue, req.count)}
+            "result": _run(rmq_svc.inject_poison_messages, req.queue, req.count)}
+
 
 @router.post("/queue/flood")
 def flood_queue(req: FloodRequest):
-    queue_name = req.queue
-    if queue_name not in QUEUE_EXCHANGE_MAP:
-        return {"action": "flood", "queue": queue_name, "count": req.count,
-                "result": f"Unknown queue: {queue_name}. Available: {list(QUEUE_EXCHANGE_MAP.keys())}"}
-    
-    exchange, routing_key = QUEUE_EXCHANGE_MAP[queue_name]
-    return {"action": "flood", "queue": queue_name, "count": req.count,
-            "result": rmq_svc.flood_exchange(exchange, req.count, routing_key)}
+    """Overwhelm a queue to show backlog build-up and consumer catch-up."""
+    return {"action": "flood", "queue": req.queue, "count": req.count,
+            "result": _run(rmq_svc.flood_queue, req.queue, req.count)}
+
 
 @router.post("/connections/drop-all")
 def drop_all():
-    return {"action": "drop_all", "result": rmq_svc.drop_all_connections()}
+    """Drop every AMQP connection; consumers reconnect on their own."""
+    return {"action": "drop_all", "result": _run(rmq_svc.drop_all_connections)}
+
 
 @router.post("/restore-all")
 def restore_all():
+    """Start every stopped ShopFlow container."""
     return {"action": "restore_all", "result": docker_svc.restore_all()}

@@ -1,110 +1,171 @@
-"""RabbitMQ Management API + pika wrapper for queue chaos operations."""
-import json, os, uuid, pika, httpx
-from datetime import datetime, timezone
+"""
+Queue-level chaos operations.
 
-MGMT_URLS = [
-    os.getenv("RABBIT1_MGMT", "http://172.20.0.11:15672"),
-    os.getenv("RABBIT2_MGMT", "http://172.20.0.12:15672"),
-    os.getenv("RABBIT3_MGMT", "http://172.20.0.13:15672"),
-]
-USER  = os.getenv("RABBITMQ_USER",  "admin")
-PASS  = os.getenv("RABBITMQ_PASS",  "shopflow123")
-VHOST = os.getenv("RABBITMQ_VHOST", "shopflow")
-HOST  = os.getenv("RABBITMQ_HOST",  "haproxy")
-PORT  = int(os.getenv("RABBITMQ_PORT", "5670"))
+Uses the shared src.core.management client for HTTP calls and src.core.connection
+for AMQP, rather than reimplementing either. Errors propagate as
+ManagementError/ChaosError so the routes can return a real HTTP status - the
+previous version swallowed every exception and returned 200 with a message
+saying it had succeeded.
+"""
+import json
+import uuid
+from datetime import UTC, datetime
 
-def _mgmt(method, path, **kw):
-    for url in MGMT_URLS:
-        try:
-            r = getattr(httpx, method)(f"{url}/api{path}", auth=(USER,PASS),
-                                       timeout=5, **kw)
-            r.raise_for_status()
-            return r.json() if method == "get" else True
-        except Exception:
-            continue
-    return None
+from src.core import management
+from src.core.connection import REQUEST_RETRIES, get_connection
+from src.core.declarations import QUEUES_BY_NAME
+from src.core.message_builder import build_properties
+from src.utils.logger import setup_logging
+
+logger = setup_logging(__name__)
+
+POISON_BODY = b"__POISON__INVALID_JSON__"
+
+
+class ChaosError(RuntimeError):
+    """A chaos action could not be carried out."""
+
+
+def _publish_target(queue_name: str) -> tuple[str, str, dict | None]:
+    """Where to publish so a message lands in ``queue_name``.
+
+    Derived from the topology registry rather than a second hand-maintained map,
+    which had drifted: every headers queue pointed at the same exchange with no
+    headers, so flooding eu_queue actually split messages between eu_queue and
+    us_queue and could never reach xml_legacy_queue at all.
+    """
+    spec = QUEUES_BY_NAME.get(queue_name)
+    if spec is None:
+        raise ChaosError(
+            f"Unknown queue {queue_name!r}. Expected one of {sorted(QUEUES_BY_NAME)}."
+        )
+    if spec.exchange is None:
+        # Default exchange: routing key is the queue name.
+        return "", spec.name, None
+    routing_key = spec.routing_keys[0] if spec.routing_keys else ""
+    if spec.bind_arguments:
+        # Headers exchange: reproduce the binding's match criteria, minus x-match.
+        headers = {k: v for k, v in spec.bind_arguments.items() if k != "x-match"}
+        return spec.exchange, "", headers
+    if routing_key == "#":
+        # A binding pattern, not a publishable routing key.
+        routing_key = "notification.chaos.flood"
+    return spec.exchange, routing_key, None
+
 
 class RabbitMQService:
-    def _conn(self):
-        creds  = pika.PlainCredentials(USER, PASS)
-        params = pika.ConnectionParameters(HOST, PORT, VHOST, creds, heartbeat=30)
-        return pika.BlockingConnection(params)
+    def _connection(self):
+        return get_connection(retries=REQUEST_RETRIES, delay=2.0)
 
-    def purge_queue(self, queue):
-        ok = _mgmt("delete", f"/queues/{VHOST}/{queue}/contents")
-        return f"Queue {queue} purged" if ok else "Failed"
+    def purge_queue(self, queue: str) -> str:
+        if queue not in QUEUES_BY_NAME and queue != "dead_letter_queue":
+            raise ChaosError(f"Unknown queue {queue!r}.")
+        management.purge_queue(queue)
+        return f"Queue {queue} purged"
 
-    def inject_poison_messages(self, queue, count):
+    def inject_poison_messages(self, queue: str, count: int) -> str:
+        """Publish undecodable bodies straight to a queue.
+
+        Each one fails in the consumer, is NACKed with requeue=False, and lands
+        on the dead letter exchange - which is the point of the demonstration.
+        """
+        if queue not in QUEUES_BY_NAME:
+            raise ChaosError(f"Unknown queue {queue!r}.")
+        connection = self._connection()
         try:
-            conn = self._conn(); ch = conn.channel()
-            props = pika.BasicProperties(delivery_mode=2)
+            channel = connection.channel()
             for _ in range(count):
-                ch.basic_publish("", queue, b"__POISON__INVALID_JSON__", props)
-            conn.close()
-            return f"Injected {count} poison messages into {queue}"
-        except Exception as e: return f"Error: {e}"
+                channel.basic_publish(exchange="", routing_key=queue,
+                                      body=POISON_BODY, properties=build_properties())
+        except Exception as exc:
+            raise ChaosError(f"Could not inject poison messages: {exc}") from exc
+        finally:
+            self._close(connection)
+        return f"Injected {count} poison messages into {queue}"
 
-    def flood_exchange(self, exchange, count, routing_key=""):
+    def flood_queue(self, queue: str, count: int) -> str:
+        """Flood the exchange that feeds ``queue`` with realistic messages."""
+        exchange, routing_key, headers = _publish_target(queue)
+        connection = self._connection()
         try:
-            conn = self._conn(); ch = conn.channel()
-            
-            # Generate realistic messages based on queue/exchange type
-            for i in range(count):
-                order_id = f"FLOOD-{uuid.uuid4().hex[:8]}"
-                base_msg = {
-                    "order_id": order_id,
-                    "flood": True,
-                    "timestamp": datetime.now(timezone.utc).isoformat(),
-                    "batch_index": i
-                }
-                
-                # Prepare headers and message body based on exchange type
-                headers = None
-                
-                if exchange == "" and routing_key == "payment_queue":
-                    # Payment messages need amount and currency
-                    msg = {**base_msg, "amount": 99.99, "currency": "USD", "customer_email": f"customer{i}@example.com"}
-                elif exchange == "" and routing_key == "inventory_queue":
-                    # Inventory messages need items
-                    msg = {**base_msg, "items": [{"sku": "SKU-001", "qty": 5}]}
-                elif exchange == "order.events":
-                    # Fanout (email, sms, push)
-                    msg = {**base_msg, "customer_email": f"customer{i}@example.com", "phone": "+1234567890", "amount": 99.99}
-                elif exchange == "logs.error":
-                    # Error logs
-                    msg = {**base_msg, "level": "error", "message": f"Flood error message {i}", "service": "flood_test"}
-                elif exchange == "logs.info":
-                    # Info logs
-                    msg = {**base_msg, "level": "info", "message": f"Flood info message {i}", "service": "flood_test"}
-                elif exchange == "notifications.topic":
-                    # Topic notifications
-                    msg = {**base_msg, "notification_type": "email", "content": f"Notification {i}"}
-                elif exchange == "orders.headers":
-                    # Headers exchange - routing via AMQP headers, not routing key
-                    # Alternate between EU and US regions
-                    region = "EU" if i % 2 == 0 else "US"
-                    msg = {**base_msg, "amount": 50.00, "region": region, "format": "json"}
-                    headers = {"region": region, "format": "json"}
-                else:
-                    msg = base_msg
-                
-                # Publish with appropriate properties
-                props = pika.BasicProperties(delivery_mode=2, headers=headers)
-                body = json.dumps(msg).encode()
-                ch.basic_publish(exchange, routing_key or "", body, props)
-            
-            conn.close()
-            return f"Flooded {exchange} with {count} messages"
-        except Exception as e: return f"Error: {e}"
+            channel = connection.channel()
+            for index in range(count):
+                body = json.dumps(self._flood_payload(queue, index)).encode()
+                channel.basic_publish(exchange=exchange, routing_key=routing_key,
+                                      body=body,
+                                      properties=build_properties(headers=headers))
+        except Exception as exc:
+            raise ChaosError(f"Could not flood {queue}: {exc}") from exc
+        finally:
+            self._close(connection)
+        target = f"exchange {exchange!r}" if exchange else "the default exchange"
+        return f"Flooded {queue} with {count} messages via {target}"
 
-    def drop_all_connections(self):
-        data = _mgmt("get", "/connections") or []
-        for c in data:
-            _mgmt("delete", f"/connections/{c.get('name','')}")
-        return f"Dropped {len(data)} connections"
+    @staticmethod
+    def _flood_payload(queue: str, index: int) -> dict:
+        """A body shaped like whatever the target consumer expects."""
+        payload = {
+            "order_id": f"FLOOD-{uuid.uuid4().hex[:8]}",
+            "flood": True,
+            "batch_index": index,
+            "timestamp": datetime.now(UTC).isoformat(),
+            "customer_name": f"Flood Customer {index}",
+            "customer_email": f"customer{index}@example.com",
+            "customer_phone": "+1-555-0100",
+            # payment_consumer rejects amounts <= 0, so keep this positive.
+            "amount": 99.99,
+            "currency": "USD",
+            "items": [{"sku": "SKU-001", "name": "Flood Item", "qty": 1, "price": 99.99}],
+        }
+        spec = QUEUES_BY_NAME.get(queue)
+        if spec is not None and spec.bind_arguments:
+            payload["region"] = spec.bind_arguments.get("region", "US")
+            payload["format"] = spec.bind_arguments.get("format", "json")
+        if queue in ("log_error_queue", "log_info_queue"):
+            payload["level"] = "error" if queue == "log_error_queue" else "info"
+            payload["service"] = "chaos_flood"
+            payload["message"] = f"Flood {payload['level']} message {index}"
+        return payload
 
-    def get_cluster_status(self):
-        data = _mgmt("get", "/nodes") or []
+    def drop_all_connections(self) -> str:
+        connections = management.connections() or []
+        dropped, failed = 0, 0
+        for conn in connections:
+            name = conn.get("name", "")
+            if not name:
+                continue
+            try:
+                management.close_connection(name)
+                dropped += 1
+            except management.ManagementError as exc:
+                failed += 1
+                logger.warning("Could not drop connection %s: %s", name, exc)
+        if failed:
+            return f"Dropped {dropped} connections, {failed} failed"
+        return f"Dropped {dropped} connections"
+
+    def get_cluster_status(self) -> list[dict]:
+        try:
+            nodes = management.nodes() or []
+        except management.ManagementError as exc:
+            logger.warning("Cluster status unavailable: %s", exc)
+            return []
         return [{"name": n.get("name"), "running": n.get("running"),
                  "mem_used": n.get("mem_used"), "disk_free": n.get("disk_free")}
-                for n in data]
+                for n in nodes]
+
+    def get_active_consumer_tags(self) -> set[str]:
+        try:
+            consumers = management.consumers() or []
+        except management.ManagementError as exc:
+            logger.warning("Consumer list unavailable: %s", exc)
+            return set()
+        return {c["consumer_tag"] for c in consumers if c.get("consumer_tag")}
+
+    @staticmethod
+    def _close(connection) -> None:
+        try:
+            if connection.is_open:
+                connection.close()
+        except Exception as exc:
+            logger.debug("Error closing chaos connection: %s", exc)

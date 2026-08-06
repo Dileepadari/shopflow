@@ -1,6 +1,8 @@
 -r requirements.txt
-pytest==8.1.1
-pytest-asyncio==0.23.6
-pytest-cov==5.0.0
-black==24.3.0
-isort==5.13.2
+# Only the chaos service needs the Docker SDK at runtime, but the dev
+# environment installs it so its tests can import.
+docker==7.2.0
+pytest==9.1.1
+pytest-cov==7.1.0
+ruff==0.16.1
+locust==2.46.3

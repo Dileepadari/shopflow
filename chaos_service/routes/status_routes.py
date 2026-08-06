@@ -1,73 +1,78 @@
 """Status and DLX history endpoints."""
-import json
-import logging
-from pathlib import Path
 from fastapi import APIRouter, Query
-from chaos_service.services.docker_service import DockerService
-from chaos_service.services.rabbitmq_service import RabbitMQService, _mgmt
 
-logger = logging.getLogger(__name__)
+from chaos_service.services.docker_service import DockerService
+from chaos_service.services.rabbitmq_service import RabbitMQService
+from src.consumers.dead_letter_consumer import DLX_LOG_FILENAME
+from src.utils.jsonl import count_records, log_path, read_records
+from src.utils.logger import setup_logging
+
+logger = setup_logging(__name__)
 router = APIRouter(tags=["Status"])
 docker_svc = DockerService()
-rmq_svc    = RabbitMQService()
-DLX_LOG    = Path("/app/logs/dead_letters.jsonl")
+rmq_svc = RabbitMQService()
+
+
+def _is_consuming(container_name: str, active_tags: set[str]) -> bool:
+    """Does this container hold a live subscription?
+
+    Consumer tags are built as "<consumer_tag>@<hostname>:<pid>" and compose
+    sets each consumer's hostname to its container name, so the container name
+    appears verbatim between "@" and ":". The looser fallback covers a consumer
+    started outside compose, where the hostname is a container id.
+    """
+    marker = f"@{container_name}:"
+    if any(marker in tag for tag in active_tags):
+        return True
+    # payment_consumer_1 -> payment_consumer
+    base = container_name.rsplit("_", 1)[0] if container_name[-1].isdigit() else container_name
+    return any(tag.startswith(f"{base}@") for tag in active_tags)
+
 
 @router.get("/status")
 def get_status():
+    """Container states plus cluster node health, for the dashboard."""
     try:
-        # Get container states
         services = docker_svc.get_all_status()
-        
-        # Get actual active consumers from RabbitMQ (more reliable than connections)
-        try:
-            # Get list of all consumers subscribed to queues
-            consumers_data = _mgmt("get", "/consumers") or []
-            
-            # Extract consumer tags - these are the actual subscriptions
-            # Consumer format: {"queue": {"name": "payment_queue", "vhost": "/shopflow"}, "consumer_tag": "payment_consumer_12345_1714876..."}
-            active_consumer_tags = set()
-            for consumer in consumers_data:
-                if 'consumer_tag' in consumer:
-                    tag = consumer['consumer_tag']
-                    # Tag format: "payment_consumer_PID_timestamp" 
-                    # Extract base name (payment_consumer, inventory_consumer, etc)
-                    active_consumer_tags.add(tag)
-            
-            # Update service status with connection state
-            for service_name, service_info in services.items():
-                # Consumer/processor services
-                if any(keyword in service_name for keyword in ['consumer', 'processor']):
-                    if service_info['state'] != 'running':
-                        service_info['connection'] = 'stopped'
-                    else:
-                        # Check if this consumer has an active subscription by matching base name
-                        # Consumer tag is like "payment_consumer_123456_1234567" and service_name is "payment_consumer"
-                        is_consuming = any(
-                            service_name in tag 
-                            for tag in active_consumer_tags
-                        )
-                        service_info['connection'] = 'consuming' if is_consuming else 'idle'
-                else:
-                    # For broker/infra services, show state
-                    service_info['connection'] = service_info['state']
-        except Exception as e:
-            logger.warning(f"Could not get consumer details: {e}")
-            # Fallback: show container state
-            for service_info in services.values():
-                service_info['connection'] = service_info['state']
-        
-        return {
-            "services": services,
-            "cluster": rmq_svc.get_cluster_status()
-        }
-    except Exception as e:
-        logger.error(f"Error getting status: {e}")
-        return {"services": {}, "cluster": {}, "error": str(e)}
+    except Exception as exc:
+        logger.error("Error getting container status: %s", exc)
+        return {"services": {}, "cluster": [], "consumers": {}, "error": str(exc)}
+
+    active_tags = rmq_svc.get_active_consumer_tags()
+    consumers: dict[str, str] = {}
+
+    for name, info in services.items():
+        if any(word in name for word in ("consumer", "processor")):
+            if info["state"] != "running":
+                info["connection"] = "stopped"
+            else:
+                info["connection"] = "consuming" if _is_consuming(name, active_tags) else "idle"
+            consumers[name] = info["connection"]
+        else:
+            info["connection"] = info["state"]
+
+    return {
+        "services": services,
+        # Exposed separately so scripts/validate.sh can assert on it directly.
+        "consumers": consumers,
+        "cluster": rmq_svc.get_cluster_status(),
+    }
+
 
 @router.get("/dlx/history")
-def dlx_history(limit: int = Query(default=50, le=500)):
-    if not DLX_LOG.exists():
-        return {"records": [], "total": 0}
-    lines = DLX_LOG.read_text().strip().splitlines()
-    records = [json.loads(l) for l in lines[-limit:]]
-    return {"records": list(reversed(records)), "total": len(lines)}
+def dlx_history(limit: int = Query(default=50, ge=1, le=500)):
+    """Recent dead letter records, newest first.
+
+    Reads only the tail and skips malformed lines: the file is appended to by
+    the DLX consumer while this reads it, so a partially written final line is
+    normal and must not fail the request.
+    """
+    path = log_path(DLX_LOG_FILENAME)
+    records = read_records(path, limit=limit)
+    # `total` is the whole file, not the page - returning len(records) made it
+    # indistinguishable from the limit and hid how many records really exist.
+    return {
+        "records": list(reversed(records)),
+        "returned": len(records),
+        "total": count_records(path),
+    }

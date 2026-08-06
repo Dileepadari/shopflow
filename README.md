@@ -1,538 +1,415 @@
-# ShopFlow - Distributed Order Processing & Notification System
-> **Team 9 - Three Musketeers** | IIITH Distributed Systems | 2026
+<div align="center">
 
-A production-grade, fully Dockerized e-commerce order processing system using RabbitMQ with automatic failover, dead-letter handling, and real-time monitoring.
+<img src="docs/adk-logo.png" alt="ADK Dev" width="180" />
+
+# ShopFlow
+
+**Distributed Order Processing & Notification System**
+
+A complete, runnable e-commerce backend where every service talks to every other
+service through RabbitMQ — and where you can break things on purpose and watch it recover.
+
+[![RabbitMQ](https://img.shields.io/badge/RabbitMQ-4.3-FF6600?logo=rabbitmq&logoColor=white)](https://www.rabbitmq.com/)
+[![Python](https://img.shields.io/badge/Python-3.13-3776AB?logo=python&logoColor=white)](https://www.python.org/)
+[![React](https://img.shields.io/badge/React-19-61DAFB?logo=react&logoColor=black)](https://react.dev/)
+[![Docker](https://img.shields.io/badge/Docker%20Compose-24%20services-2496ED?logo=docker&logoColor=white)](https://docs.docker.com/compose/)
+
+</div>
 
 ---
 
-## Quick Start
+## Contents
 
-### Prerequisites
-- Docker Desktop (Mac/Windows) or Docker Engine (Linux)
-- 8GB RAM minimum, 10GB disk space
+- [What ShopFlow is](#what-shopflow-is)
+- [Quick start](#quick-start)
+- [Where everything lives](#where-everything-lives)
+- [Place your first order](#place-your-first-order)
+- [The dashboard](#the-dashboard)
+- [Breaking things on purpose](#breaking-things-on-purpose)
+- [Tuning](#tuning)
+- [Checking the system is healthy](#checking-the-system-is-healthy)
+- [Load testing](#load-testing)
+- [Troubleshooting](#troubleshooting)
+- [Shutting down](#shutting-down)
+- [For developers](#for-developers)
+- [Credits](#credits)
 
-### Launch Everything
+---
+
+## What ShopFlow is
+
+When you buy something online, a dozen things have to happen: the payment is
+charged, stock is reserved, you get an email and an SMS, the event is logged, and
+somewhere a regional system takes over for tax and compliance.
+
+The naive way to build that is to have the order service call each of those in
+turn over HTTP. Then the payment gateway gets slow, the order service's threads
+all pile up waiting for it, and checkout stops working for everyone.
+
+ShopFlow builds it the other way round. Every service publishes messages to
+RabbitMQ and every other service subscribes to what it cares about. Nothing waits
+on anything. If a service crashes mid-work, its unfinished message goes back on
+the queue and another copy picks it up. If a broker node dies, the other two
+carry on.
+
+**What is actually running:**
+
+| | |
+|---|---|
+| **3-node RabbitMQ cluster** | Quorum queues replicated across all three nodes, so a write survives losing one |
+| **HAProxy** | One AMQP address for everything; reroutes automatically when a node goes down |
+| **16 consumer services** | Payment ×2, inventory ×2, email, SMS, push, two log sinks, three notification handlers, three regional processors, and the dead letter auditor |
+| **Producer API** | REST endpoints for placing orders, so you never have to run a script by hand |
+| **Chaos Control Panel** | Stop, kill, pause and flood things on demand |
+| **React dashboard** | Live view of queues, exchanges, consumers, throughput and failures |
+
+All five RabbitMQ exchange types are exercised by a single order — direct,
+fanout, topic, headers and the default exchange — plus a dead letter exchange for
+anything that fails.
+
+---
+
+## Quick start
+
+**You need:** Docker Desktop, or Docker Engine with the Compose plugin. Nothing
+else — no Python, no Node, no local RabbitMQ.
+
 ```bash
-# Clone and start
 git clone https://github.com/Dileepadari/shopflow.git
 cd shopflow
-docker compose up --build
+cp .env.example .env          # optional; sensible defaults are built in
+docker compose up --build -d
 ```
 
-That's it! All 24 services auto-start with correct dependency order:
-1. **3-node RabbitMQ cluster** (172.20.0.11/12/13) - Quorum queues, Raft consensus
-2. **HAProxy** (172.20.0.10) - Unified AMQP entrypoint on port 5670
-3. **cluster_init** - One-shot topology initialization, then exits
-4. **14 Consumers** - All 5 RabbitMQ exchange types + DLX handler
-5. **Producer API** - FastAPI REST service (port 8090)
-6. **Chaos Service** - Fault injection API (port 8080)
-7. **Frontend** - React dashboard with real-time monitoring (port 3000)
+The first build takes a few minutes while images download. Then open:
+
+### **http://localhost:3000**
+
+Give it about a minute to settle — the cluster forms, `cluster_init` declares the
+topology, and only then do the consumers start. To watch that happen:
+
+```bash
+docker compose logs -f cluster_init
+```
+
+Once `docker compose ps` shows everything up and `cluster_init` has exited with
+code 0, you are ready.
 
 ---
 
-## Access Points
+## Where everything lives
 
-| URL | Service | Credentials | Purpose |
-|-----|---------|-------------|---------|
-| http://localhost:3000 | **React Dashboard** | - | Real-time monitoring, order publishing, chaos control |
-| http://localhost:8090/docs | **Producer API** (Swagger) | - | REST endpoints for order publishing |
-| http://localhost:8080/docs | **Chaos Control Panel** (Swagger) | - | Fault injection API |
-| http://localhost:15672 | **RabbitMQ Mgmt** (node 1) | admin/shopflow123 | RabbitMQ cluster UI |
-| http://localhost:8404/stats | **HAProxy Stats** | admin/shopflow123 | Load balancer health |
+| What | URL | Login |
+|---|---|---|
+| **Dashboard** | http://localhost:3000 | — |
+| Producer API docs | http://localhost:8090/docs | — |
+| Chaos Panel API docs | http://localhost:8080/docs | — |
+| RabbitMQ management (node 1) | http://localhost:15672 | `admin` / `shopflow123` |
+| RabbitMQ management (node 2) | http://localhost:15673 | `admin` / `shopflow123` |
+| RabbitMQ management (node 3) | http://localhost:15674 | `admin` / `shopflow123` |
+| HAProxy stats | http://localhost:8404/stats | `admin` / `shopflow123` |
+| AMQP (via HAProxy) | `localhost:5670` | `admin` / `shopflow123` |
+
+> **About those credentials.** They are demonstration defaults, committed on
+> purpose so the project runs with no setup. They are not secrets. If you put
+> this anywhere reachable by other people, change `RABBITMQ_PASS` and
+> `RABBITMQ_ERLANG_COOKIE` in your `.env` first.
 
 ---
 
-## Publish Orders
+## Place your first order
 
-### Single Order via REST
+**From the dashboard** — open the **Orders** tab, pick a region, press Send.
+
+**From the command line:**
+
 ```bash
 curl -X POST http://localhost:8090/orders/publish \
-  -H "Content-Type: application/json" \
-  -d '{
-    "region":"US",
-    "format":"json",
-    "amount":99.99,
-    "currency":"USD"
-  }'
+  -H 'Content-Type: application/json' \
+  -d '{"region":"US","format":"json","amount":149.99}'
 ```
 
-### Batch Orders
+```json
+{ "status": "published", "order_id": "3f2a8c14-..." }
+```
+
+That single call produced about a dozen messages. Watch them land on the
+**Queues** tab, or follow one consumer:
+
+```bash
+docker compose logs -f payment_consumer_1
+```
+
+**A batch, over one connection:**
+
 ```bash
 curl -X POST http://localhost:8090/orders/batch \
-  -H "Content-Type: application/json" \
-  -d '{"count":20,"region":"EU","format":"json"}'
+  -H 'Content-Type: application/json' \
+  -d '{"count":50,"region":"EU","format":"json"}'
 ```
 
-### Via Dashboard
-1. Open http://localhost:3000
-2. Click **Orders** tab
-3. Set quantity, customer ID, amount
-4. Select **US Region** or **EU Region** template
-5. Click "Send N Orders"
+### What one order actually does
 
----
-
-## ⚡ Chaos Engineering - Live Fault Injection
-
-### Automated Demo (7 Scenarios)
-```bash
-bash scripts/demo.sh
 ```
+                        POST /orders/publish
+                                 │
+        ┌────────────────────────┼────────────────────────┐
+        │                        │                        │
+  default exchange         order.events           notifications.topic
+   (work queues)             (fanout)                   (topic)
+        │                        │                        │
+  payment_queue  ──┐        email_queue      notification.email.*    → notif_email_queue
+  inventory_queue  │        sms_queue        notification.sms.urgent → notif_sms_queue
+        │          │        push_queue       #                       → notif_audit_queue
+        │          │             │                        │
+  2 workers each   │       3 consumers,             3 consumers
+  compete for      │       each gets a copy
+  each message     │
+                   │
+        ┌──────────┴──────────┐
+  logs.info / logs.error   orders.headers
+       (direct)               (headers)
+        │                        │
+  log_info_queue          region=EU + format=json → eu_queue
+  log_error_queue         region=US + format=json → us_queue
+                          format=xml              → xml_legacy_queue
 
-Demonstrates:
-1. Baseline order publishing (10 orders)
-2. Consumer failure + restart (queue accumulation)
-3. Broker crash → HA failover
-4. Poison message injection → DLX
-5. Broker node stop/start
-6. Queue flooding (500 messages)
-7. Full system restore
-
-### Manual Chaos via Dashboard
-1. Open http://localhost:3000 → **⚡ Chaos** tab
-2. **Consumer Controls:** Stop/Kill/Pause any consumer, watch queue depth rise
-3. **Broker Controls:** Kill rabbit2, watch auto-failover to rabbit1/rabbit3
-4. **Queue Controls:** Purge queues, inject poison messages, flood exchanges
-5. **Global Controls:** Drop all connections, restore all services
-
-### Chaos via REST API
-```bash
-# Stop a consumer
-curl -X POST http://localhost:8080/chaos/consumer/stop \
-  -H "Content-Type: application/json" \
-  -d '{"service":"payment_consumer_1"}'
-
-# Kill a broker node (SIGKILL)
-curl -X POST http://localhost:8080/chaos/broker/kill \
-  -H "Content-Type: application/json" \
-  -d '{"node":"rabbit2"}'
-
-# Inject poison messages
-curl -X POST http://localhost:8080/chaos/queue/poison \
-  -H "Content-Type: application/json" \
-  -d '{"queue":"payment_queue","count":5}'
-
-# Restore all stopped services
-curl -X POST http://localhost:8080/chaos/restore-all \
-  -H "Content-Type: application/json" \
-  -d '{}'
+  Anything that fails 3 times, or sits unconsumed for 60 seconds, is routed to
+  dead.letter.exchange → dead_letter_queue → the DLX Audit tab.
 ```
 
 ---
 
-## Load Testing
+## The dashboard
 
-### Setup (Local Machine)
+Nine tabs, refreshing every two seconds. There is a light/dark toggle at the top
+right.
+
+| Tab | What it shows |
+|---|---|
+| **Overview** | Cluster-wide totals, live publish/deliver/ack rates, and current queue depths |
+| **Queues** | Every queue: backlog, in-flight messages, consumer count, queue type |
+| **Exchanges** | Each exchange and exactly what is bound to it, with routing keys and header rules |
+| **Consumers** | Live subscriptions, prefetch settings, and which container each belongs to |
+| **Connections** | Open AMQP connections grouped by the cluster node serving them |
+| **DLX Audit** | Every message that failed permanently — source queue, reason, retry count, full body |
+| **Orders** | Place single orders or batches |
+| **Publisher** | Publish a raw message to any exchange, with ready-made samples per exchange type |
+| **Chaos** | Break things (see below) |
+
+---
+
+## Breaking things on purpose
+
+This is the interesting part. Open the **Chaos** tab, keep **Queues** open in a
+second window, and try these.
+
+### Stop a consumer and watch the backlog build
+
+Stop `payment_consumer_1`, then publish 20 orders. `payment_queue` starts filling
+up because only one worker is left. Start it again and the backlog drains.
+
+### Kill a consumer mid-message
+
+Kill `email_consumer` with SIGKILL while it is working. The message it had not
+finished was never acknowledged, so RabbitMQ requeues it the moment the TCP
+connection drops. Nothing is lost.
+
+### Poison a queue
+
+Inject messages that cannot be parsed. Each one fails, is retried up to three
+times, and then lands in the **DLX Audit** tab with its full history. The
+consumer stays healthy throughout.
+
+### Take a broker node down
+
+Stop `rabbit2`. HAProxy notices within seconds and stops sending it traffic. The
+quorum queues elect a new leader from the remaining two nodes. Publish more
+orders — everything still works. Start it again and it rejoins and catches up.
+
+### Flood a queue
+
+Push 500 messages at once and watch the consumers work through the spike, which
+is the whole point of having a queue.
+
+### Put it all back
+
+**Restore all** starts everything the panel stopped.
+
+### The scripted tour
+
 ```bash
-# Install Locust
-pip install locust
+./scripts/demo.sh
+```
 
-# Run against Producer API
+Runs all eight scenarios in order with pauses, so you can watch each one land on
+the dashboard.
+
+### Or drive it by API
+
+```bash
+curl -X POST http://localhost:8080/chaos/consumer/stop -H 'Content-Type: application/json' -d '{"service":"payment_consumer_1"}'
+curl -X POST http://localhost:8080/chaos/broker/stop   -H 'Content-Type: application/json' -d '{"node":"rabbit2"}'
+curl -X POST http://localhost:8080/chaos/queue/poison  -H 'Content-Type: application/json' -d '{"queue":"payment_queue","count":5}'
+curl -X POST http://localhost:8080/chaos/queue/flood   -H 'Content-Type: application/json' -d '{"queue":"email_queue","count":500}'
+curl -X POST http://localhost:8080/chaos/restore-all
+```
+
+Full reference at http://localhost:8080/docs.
+
+---
+
+## Tuning
+
+Edit `.env`, then `docker compose up -d` to apply.
+
+| Setting | Default | What it changes |
+|---|---|---|
+| `PREFETCH_COUNT` | `1` | Messages sent to a consumer before it must acknowledge. `1` gives perfectly fair distribution; higher is faster but lets one worker hoard a backlog. |
+| `MAX_RETRIES` | `3` | How many times a failing message is retried before it is archived in the DLX. |
+| `MESSAGE_TTL_MS` | `60000` | How long a message may sit unconsumed before it is dead-lettered. Raise it if you plan to stop a consumer for more than a minute. |
+| `LOG_LEVEL` | `INFO` | `DEBUG` for full detail, `WARNING` for quiet. |
+
+> Changing `MESSAGE_TTL_MS` changes the queues' declared arguments, and RabbitMQ
+> will not redeclare an existing queue with different arguments. Run
+> `./scripts/teardown.sh` first.
+
+---
+
+## Checking the system is healthy
+
+```bash
+./scripts/health-check.sh   # every container and endpoint, with a pass/fail summary
+./scripts/validate.sh       # 21 end-to-end assertions against the running stack
+./scripts/monitor.sh        # live terminal dashboard, refreshes every 5s
+```
+
+`validate.sh` exits non-zero if anything is wrong, so it doubles as a smoke test.
+
+---
+
+## Load testing
+
+```bash
+python3 -m venv .venv && source .venv/bin/activate
+pip install -r requirements-dev.txt
 locust -f tests/load/locustfile.py --host http://localhost:8090
-# Open http://localhost:8089
 ```
 
-### Scenarios in Locust
-- **Baseline:** 10 concurrent users, 500 orders
-- **Ramp-up:** Linearly ramp to 100 users over 60 seconds
-- **Stress:** Sustained 500 concurrent users
-- **HA Failover:** Baseline while stopping rabbit2 mid-test
+Open http://localhost:8089 and choose a user count. Or headless:
 
-### Results
-Load test results saved to `tests/results/` with:
-- Throughput (orders/sec)
-- Response times (p50, p95, p99)
-- Error rates
-- Success counts
-
----
-
-## Real-Time Monitoring Dashboard
-
-### Overview Tab
-- **Cluster Health:** 3 nodes with memory/disk/uptime metrics
-- **System Stats:** Messages ready, consumers, channels, connections
-- **Message Rate Chart:** 30-second rolling window (publish/ack/nack rates)
-
-### Queues Tab
-- **14 Production Queues:** Queue depth, ready count, consumer count, unacked
-- **Real-time Updates:** 2-second polling interval
-- **Queue Types:** Classic (legacy), Quorum (HA with Raft)
-
-### Exchanges Tab
-- **6 Exchange Types:** Direct, Fanout, Topic, Headers, DLX, Default
-- **Binding Info:** Which queues receive from each exchange
-- **Type Badges:** Visual exchange type indicators
-
-### Consumers Tab
-- **Active Consumers:** All consumer connections with queue assignments
-- **Prefetch Count:** Fair dispatch settings (prefetch=1)
-- **ACK Mode:** Manual acknowledgment verification
-
-### Connections Tab
-- **AMQP Connections:** Grouped by RabbitMQ node
-- **Channel Info:** Channels per connection
-- **Connection Health:** Last updated timestamp
-
-### DLX Audit Tab
-- **Dead-Letter Records:** All failed messages with audit trail
-- **Original Queue:** Source queue for each dead-lettered message
-- **Retry Count:** How many retries attempted
-- **Death Reason:** Why message was dead-lettered (TTL/NACK/exhausted)
-- **Message Body:** Expandable JSON view of failed message
-
-### Publisher Tab
-- **Manual Message Publishing:** Send arbitrary messages to any exchange
-- **Routing Key:** Optional routing for targeted delivery
-- **Custom JSON:** Full message body control
-- **Exchange Selector:** Dropdown with all exchanges
-
-### Orders Tab (NEW)
-- **Batch Order Publishing:** Send 1-100 orders at once
-- **Template Support:** US/EU region templates with auto-populate
-- **Custom Items:** Full JSON items specification
-- **Success Counter:** Badge showing delivery count
-
-### ⚡ Chaos Tab
-- **Consumer Controls:** Stop, Kill, Pause, Resume, Start
-- **Broker Controls:** 3x3 grid for all nodes (Stop/Kill/Start)
-- **Queue Controls:** Purge, Poison (1x/5x), Flood (100 msgs)
-- **Delay Simulation:** Add processing delay to specific consumers
-- **Global Controls:** Disconnect All, Restore All
-- **Action Log:** Timestamped log of last 10 chaos actions
-
----
-
-## Configuration & Tuning
-
-### Runtime Environment Variables (`.env`)
 ```bash
-# RabbitMQ
-RABBITMQ_USER=admin
-RABBITMQ_PASS=shopflow123
-RABBITMQ_VHOST=shopflow
-RABBITMQ_ERLANG_COOKIE=SHOPFLOW_SECRET_COOKIE_2025
-
-# Consumer Behavior
-PREFETCH_COUNT=1              # Fair dispatch (1 msg per consumer at a time)
-MAX_RETRIES=3                 # Max attempts before dead-lettering
-MESSAGE_TTL_MS=60000          # 60 seconds before auto-DLX
-
-# Ports
-HAPROXY_AMQP_PORT=5670        # All producers/consumers connect here
-FRONTEND_PORT=3000
-CHAOS_SERVICE_PORT=8080
-PRODUCER_API_PORT=8090
-LOCUST_PORT=8089
+locust -f tests/load/locustfile.py --host http://localhost:8090 \
+       --headless -u 50 -r 5 -t 2m
 ```
 
-### Tuning for Different Loads
-```bash
-# High throughput (trade reliability)
-PREFETCH_COUNT=10
-MESSAGE_TTL_MS=120000
-
-# High reliability (accept latency)
-PREFETCH_COUNT=1
-MAX_RETRIES=5
-MESSAGE_TTL_MS=30000
-
-# Development (fast feedback)
-PREFETCH_COUNT=5
-MESSAGE_TTL_MS=10000
-```
+Note that the consumers deliberately sleep to simulate real work — payment takes
+2–5 seconds per message — so queue depth is expected to grow under load. That is
+the demonstration, not a fault.
 
 ---
 
-## System Guarantees
+## Troubleshooting
 
-| Guarantee | How It Works |
-|-----------|------------|
-| **No Message Loss** | Quorum queues (Raft consensus) + persistent delivery_mode=2 + manual ACK |
-| **At-Least-Once** | Messages requeued on TCP disconnect; max 3 retries then DLX |
-| **HA Failover** | HAProxy load balances 3-node cluster; quorum queues elect new leader in <5s |
-| **Fair Dispatch** | prefetch_count=1 prevents backlog starvation |
-| **Dead-Letter Audit** | All failures logged to `/app/logs/dead_letters.jsonl` on shared volume |
-| **Consumer Resilience** | Automatic reconnect on broker crash; restart on container failure |
+<details>
+<summary><strong>A RabbitMQ node will not start after upgrading</strong></summary>
 
----
+RabbitMQ 4.x cannot read data written by 3.13. If you are coming from an older
+checkout, wipe the volumes:
 
-## Cleanup & Reset
-
-### Full Teardown
 ```bash
-bash scripts/teardown.sh
+docker compose down -v
+docker compose up --build -d
 ```
+</details>
 
-Removes:
-- All 24 containers
-- All Docker volumes (queues, logs, data)
-- Shared log files
-- Network bridges
+<details>
+<summary><strong>Containers keep restarting</strong></summary>
 
-**Warning:** Data loss - cannot recover after teardown.
+Almost always the cluster had not finished forming. Check in order:
 
-### Soft Reset (Keep Containers)
 ```bash
-docker compose restart
-```
-
-### View Logs
-```bash
-# All services
-docker compose logs -f
-
-# Specific service
-docker compose logs -f payment_consumer_1
-
-# Last 100 lines, follow
-docker compose logs -f --tail=100 consumer_name
-```
-
----
-
-## 📈 Performance Benchmarks
-
-### Baseline Configuration
-- **3-node cluster**, HAProxy load balancer
-- **Quorum queues**, Raft consensus
-- **prefetch_count=1** (fair dispatch)
-- **delivery_mode=2** (persistent)
-
-### Expected Throughput
-- **Single Consumer:** ~500-800 msgs/sec (simulated 2-5s work)
-- **Payment Queue (2 consumers):** ~1000-1600 msgs/sec (fair dispatch)
-- **Fanout (email+sms+push parallel):** ~2000+ msgs/sec (3 copies)
-- **All Consumers Combined:** ~5000-7000 msgs/sec stable
-
-### Latency (P99)
-- **Order publish → payment_queue ready:** <50ms
-- **Order → all 5 exchanges:** <100ms
-- **Consumer failure → requeue:** <5s (HAProxy health check)
-- **Broker failover:** <10s (quorum leader election)
-
----
-
-## 🏗️ Architecture
-
-### Diagram
-![Architecture](Architecture.png)
-
-
-### Message Flow
-```
-Order Published via REST
-    ↓
-Producer API (/orders/publish)
-    ↓ (publishes to 5 exchanges)
-    ├→ Default Ex. → payment_queue → payment_consumer_1/2 ✓
-    ├→ Default Ex. → inventory_queue → inventory_consumer_1/2 ✓
-    ├→ order.events (fanout) → email/sms/push queues ✓
-    ├→ notifications.topic → notif_email/sms/audit (routing keys) ✓
-    └→ orders.headers (region/format match) → eu/us/xml_legacy ✓
-    
-If any consumer crashes:
-    ↓
-RabbitMQ auto-requeues unACKed messages
-    ↓ (after 3 retries)
-Dead Letter Exchange
-    ↓
-dead_letter_consumer writes to /app/logs/dead_letters.jsonl
-    ↓
-Chaos Service reads → Dashboard DLX Audit tab
-```
-
-### Data Persistence
-- **Quorum queues** replicated across all 3 nodes (Raft consensus)
-- **Dead-letter records** persisted to `shared_logs` Docker volume
-- **Error logs** persisted to `shared_logs` volume
-- **Message TTL:** 60 seconds (auto-DLX after expiry)
-
----
-
-## 🐛 Troubleshooting
-
-### "Connection refused" errors
-```bash
-# Check all services started
+docker compose logs cluster_init      # must exit 0
+docker compose logs rabbit1 | tail -50
 docker compose ps
-
-# Ensure HAProxy is up
-curl -s http://localhost:8404/stats | head -5
-
-# Check producer_api health
-curl -s http://localhost:8090/health
 ```
 
-### Queues not consuming messages
+If `cluster_init` failed, the consumers deliberately refuse to start — a
+half-declared topology would silently drop messages.
+</details>
+
+<details>
+<summary><strong>The dashboard loads but every panel is empty</strong></summary>
+
+The dashboard talks to the backend through nginx on the same origin. Check the
+proxy:
+
 ```bash
-# Check consumer status
-curl -s http://localhost:15672/api/consumers -u admin:shopflow123 | python3 -m json.tool
-
-# Restart a specific consumer
-docker compose restart payment_consumer_1
-
-# Check consumer logs
-docker compose logs payment_consumer_1 | tail -50
+curl http://localhost:3000/api/mgmt/overview
+curl http://localhost:3000/api/chaos/status
 ```
 
-### High latency / slow processing
+If those fail but `curl http://localhost:8090/health` succeeds, rebuild the
+frontend with `docker compose up -d --build frontend`.
+</details>
+
+<details>
+<summary><strong>Messages are disappearing</strong></summary>
+
+Check the **DLX Audit** tab. The usual cause is `MESSAGE_TTL_MS`: a message
+sitting in a queue for more than 60 seconds is dead-lettered automatically, which
+happens easily if you stop a consumer and leave it stopped.
+</details>
+
+<details>
+<summary><strong>A port is already in use</strong></summary>
+
+Change it in `.env` — every port is configurable (`FRONTEND_PORT`,
+`PRODUCER_API_PORT`, `RABBIT1_MGMT_PORT`, and so on).
+</details>
+
+<details>
+<summary><strong>I want a clean slate</strong></summary>
+
 ```bash
-# Check RabbitMQ memory usage
-docker compose exec rabbit1 rabbitmq-diagnostics -q memory_breakdown
-
-# Check consumer prefetch
-docker compose logs | grep "prefetch"
-
-# Reduce message work time in /src/consumers/
-# (Currently 0.5-5.0s simulated delays)
+./scripts/teardown.sh
+docker compose up --build -d
 ```
+</details>
 
-### Dead-letter records not visible
+---
+
+## Shutting down
+
 ```bash
-# Check DLX audit log
-docker compose exec chaos_service tail -100 /app/logs/dead_letters.jsonl
-
-# Verify dead_letter_consumer is running
-docker compose ps dead_letter_consumer
-
-# Manually publish a poison message
-curl -X POST http://localhost:8080/chaos/queue/poison \
-  -d '{"queue":"payment_queue","count":1}'
+docker compose stop        # pause; state is kept
+docker compose down        # remove containers, keep queued messages
+./scripts/teardown.sh      # remove everything, including all data
 ```
 
 ---
 
-## 📚 Documentation
+## For developers
 
-- **Architecture:** See [PRD](ShopFlow_PRD.pdf) for full system design
-- **API Reference:** 
-  - Producer: http://localhost:8090/docs
-  - Chaos: http://localhost:8080/docs
-- **Consumer Code:** `src/consumers/`
-- **Frontend Code:** `frontend/src/`
+Architecture, the full message topology, running services outside Docker, the API
+reference, and how to add a consumer:
 
----
+### **[docs/DEVELOPMENT.md](docs/DEVELOPMENT.md)**
 
-## ✅ Implementation Status
-
-### Functional Requirements
-- ✅ FR-01: Work Queues (payment/inventory)
-- ✅ FR-02: Fanout Exchange (email/sms/push)
-- ✅ FR-03: Direct Exchange (logs)
-- ✅ FR-04: Topic Exchange (notifications)
-- ✅ FR-05: Headers Exchange (region routing)
-- ✅ FR-06: Message Persistence (delivery_mode=2)
-- ✅ FR-07: Manual ACK & Retry (3 attempts, auto-DLX)
-- ✅ FR-08: Dead Letter Exchange (audit + logs)
-- ✅ FR-09: Multi-Node Cluster (3-node HA)
-- ✅ FR-10: Quorum Queues (Raft consensus)
-- ✅ FR-11: Producer API (REST endpoints)
-- ✅ FR-12: Load Testing (Locust framework)
-- ✅ FR-13: Real-Time Dashboard (React + 9 tabs)
-
-### Non-Functional Requirements
-- ✅ Portability: Single `docker compose up --build`
-- ✅ Reproducibility: Identical on any machine with Docker
-- ✅ High Availability: 3-node cluster, HAProxy
-- ✅ Fault Tolerance: Manual ACK + auto-requeue
-- ✅ Observability: Dashboard + logs + Swagger
-- ✅ Startup Order: Healthcheck dependencies
-- ✅ Data Durability: Quorum + persistent mode
-- ✅ Configurability: .env runtime tuning
-- ✅ Teardown: Clean reset via scripts
+The original product specification is in [`ShopFlow_PRD.pdf`](ShopFlow_PRD.pdf).
 
 ---
 
-## 🎓 Learning Outcomes
+## Credits
 
-This system demonstrates:
-- **Distributed Messaging:** RabbitMQ exchange types, quorum queues, Raft consensus
-- **High Availability:** 3-node cluster, automatic failover, HAProxy load balancing
-- **Fault Tolerance:** Dead-letter exchanges, retry logic, circuit breakers
-- **Real-time Monitoring:** WebSocket-based dashboard, live metrics
-- **Chaos Engineering:** Inject faults to test resilience (Section 9 of PRD)
-- **Container Orchestration:** Docker Compose with startup dependencies
-- **Production Patterns:** Persistent delivery, fair dispatch, health checks
+Built and maintained by **[Dileep Adari](https://dileepadari.dev)** — ADK Dev.
+
+Originally developed as a distributed systems course project at IIIT Hyderabad by
+**Team 9 — Three Musketeers**, whose product requirements document still defines
+the system's behaviour and is included in this repository.
 
 ---
 
-## 📞 Support
-
-Team 9 - Three Musketeers  
-IIITH Distributed Systems Course | 2026
-
-**Git:** https://github.com/Dileepadari/shopflow
-
-```bash
-# Install Locust locally
-pip install locust
-
-locust -f tests/load/locustfile.py --host http://localhost:8090
-# Open http://localhost:8089 → set users/rate → Start
-```
-
-## Teardown
-
-```bash
-docker compose down -v     # removes containers + volumes
-# or
-bash scripts/teardown.sh
-```
-
-## Architecture
-
-```
-docker compose up
-  ├── rabbit1 / rabbit2 / rabbit3  (3-node Raft quorum cluster)
-  ├── haproxy                       (AMQP :5670, leastconn LB)
-  ├── cluster_init                  (one-shot: declares all topology → exits 0)
-  │
-  ├── payment_consumer_1            ─┐
-  ├── payment_consumer_2            ─┤  FR-01 Work Queues (default exchange)
-  ├── inventory_consumer_1          ─┤
-  ├── inventory_consumer_2          ─┘
-  │
-  ├── email_consumer                ─┐
-  ├── sms_consumer                  ─┤  FR-02 Fanout (order.events)
-  ├── push_consumer                 ─┘
-  │
-  ├── log_error_consumer            ─┐  FR-03 Direct (logs.direct)
-  ├── log_info_consumer             ─┘
-  │
-  ├── notif_email_consumer          ─┐
-  ├── notif_sms_consumer            ─┤  FR-04 Topic (notifications.topic)
-  ├── notif_audit_consumer          ─┘
-  │
-  ├── eu_processor                  ─┐
-  ├── us_processor                  ─┤  FR-05 Headers (orders.headers)
-  ├── xml_legacy_consumer           ─┘
-  │
-  ├── dead_letter_consumer              FR-08 DLX audit
-  │
-  ├── producer_api     :8090            REST → publish orders on demand
-  ├── chaos_service    :8080            Fault injection API
-  └── frontend         :3000            React dashboard
-```
-
-## Service Startup Order
-
-```
-rabbit1 → rabbit2 → rabbit3
-               ↓
-           haproxy (healthy)
-               ↓
-         cluster_init (exits 0)
-               ↓
-    ┌──────────┴──────────┐
-    │ all consumers       │
-    │ producer_api        │
-    │ chaos_service       │
-    └─────────────────────┘
-               ↓
-           frontend
-```
-
-## Testing
-python -m pytest tests/unit/ -v
-python -m pytest tests/integration/ -v
+<div align="center">
+<sub>ShopFlow · ADK Dev · 2026</sub>
+</div>

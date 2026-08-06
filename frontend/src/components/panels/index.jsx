@@ -1,254 +1,371 @@
-import React from 'react'
-import { ChevronDown, ChevronRight, Server, AlertCircle, Info } from 'lucide-react'
-import { Card, Stat, StatusDot, Badge } from '../ui/index'
+import {
+  ChevronDown,
+  ChevronRight,
+  Network,
+  Server,
+  Share2,
+  Users,
+} from 'lucide-react'
 
-/**
- * ClusterHealthPanel - Shows RabbitMQ cluster node status and metrics.
- */
+import {
+  Badge,
+  Card,
+  EmptyState,
+  ErrorMessage,
+  LoadingSpinner,
+  Mono,
+  SectionTitle,
+  StatusDot,
+} from '../ui/index'
+
+/** Wraps the loading/error/empty states every panel shares. */
+function PanelState({ loading, error, empty, emptyMessage, children }) {
+  if (loading) return <LoadingSpinner />
+  if (error) return <ErrorMessage message={error} />
+  if (empty) return <EmptyState message={emptyMessage} />
+  return children
+}
+
+const LEGEND_CLASS =
+  'mb-4 p-3 rounded-[var(--radius)] border border-line bg-surface-muted text-xs text-muted space-y-1'
+
+/** RabbitMQ cluster node status and resource usage. */
 export function ClusterHealthPanel({ nodes = [], loading, error, isOpen = true, onToggle }) {
-  if (loading) return <Card><p className="text-gray-500">Loading cluster health...</p></Card>
-  if (error) return <Card><p className="text-red-400">Error: {error}</p></Card>
+  const running = nodes.filter((n) => n.running).length
 
   return (
     <Card>
-      <div className="mb-4">
-        <div className="flex items-center justify-between cursor-pointer hover:opacity-80 transition" onClick={onToggle}>
-          <div className="flex-1 flex items-center gap-3">
-            <Server className="w-5 h-5 text-teal-500" />
-            <div>
-              <h2 className="text-lg font-bold text-white mb-1">Cluster Health</h2>
-              <p className="text-xs text-gray-400">RabbitMQ cluster node status and resource usage</p>
-            </div>
+      <button
+        type="button"
+        onClick={onToggle}
+        aria-expanded={isOpen}
+        className="w-full flex items-center justify-between gap-3 text-left hover:opacity-80 transition-opacity"
+      >
+        <div className="flex items-center gap-2">
+          <Server className="w-4 h-4 text-brand" aria-hidden="true" />
+          <div>
+            <h2 className="text-sm font-semibold text-content">Cluster Health</h2>
+            <p className="text-xs text-muted">
+              {running} of {nodes.length || 3} nodes running
+            </p>
           </div>
-          {isOpen ? <ChevronDown className="w-5 h-5 text-teal-500" /> : <ChevronRight className="w-5 h-5 text-teal-500" />}
         </div>
-      </div>
-      
-      {isOpen && (
-        <>
-          {/* Node Health Legend */}
-          <div className="mb-4 p-3 bg-slate-800 rounded border border-slate-700 text-xs text-gray-300 space-y-1">
-            <p><span className="inline-block w-2 h-2 bg-emerald-500 rounded-full align-middle mr-2"></span> <span className="text-emerald-400">UP</span> = Node is running</p>
-            <p><span className="inline-block w-2 h-2 bg-slate-500 rounded-full align-middle mr-2"></span> <span className="text-slate-400">DOWN</span> = Node is offline</p>
-            <p><span className="text-gray-400">Memory:</span> RAM used by the node</p>
-            <p><span className="text-gray-400">Disk:</span> Available disk space</p>
-          </div>
+        {isOpen ? (
+          <ChevronDown className="w-4 h-4 text-muted" />
+        ) : (
+          <ChevronRight className="w-4 h-4 text-muted" />
+        )}
+      </button>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2 sm:gap-4">
-            {nodes.map((node) => (
-              <div key={node.name} className="border border-slate-700 rounded p-2 sm:p-3 bg-slate-800 hover:border-teal-600 transition">
-                <div className="flex items-center gap-2 mb-2 flex-wrap">
-                  <StatusDot status={node.running ? 'healthy' : 'offline'} />
-                  <span className="text-sm font-semibold text-white">{node.name}</span>
-                  <Badge status={node.running ? 'healthy' : 'offline'} label={node.running ? 'UP' : 'DOWN'} />
+      {isOpen && (
+        <div className="mt-4">
+          <PanelState
+            loading={loading && nodes.length === 0}
+            error={nodes.length === 0 ? error : null}
+            empty={!loading && nodes.length === 0}
+            emptyMessage="No cluster nodes reporting"
+          >
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+              {nodes.map((node) => (
+                <div
+                  key={node.name}
+                  className="border border-line rounded-[var(--radius)] p-3 bg-surface-muted"
+                >
+                  <div className="flex items-center gap-2 mb-2 flex-wrap">
+                    <StatusDot status={node.running ? 'healthy' : 'offline'} />
+                    <Mono className="font-medium text-content truncate">{node.name}</Mono>
+                    <Badge
+                      status={node.running ? 'healthy' : 'offline'}
+                      label={node.running ? 'UP' : 'DOWN'}
+                    />
+                  </div>
+                  <dl className="space-y-1 text-xs">
+                    <Row label="Memory" value={formatBytes(node.mem_used)} />
+                    <Row label="Disk free" value={formatBytes(node.disk_free)} />
+                    <Row label="Uptime" value={formatUptime(node.uptime)} />
+                  </dl>
                 </div>
-                <div className="space-y-1 text-xs">
-                  <p><span className="text-gray-400">Memory:</span> <span className="text-gray-300">{formatBytes(node.mem_used)}</span></p>
-                  <p><span className="text-gray-400">Disk:</span> <span className="text-gray-300">{formatBytes(node.disk_free)}</span></p>
-                  <p><span className="text-gray-400">Uptime:</span> <span className="text-gray-300">{formatUptime(node.uptime)}</span></p>
-                </div>
-              </div>
-            ))}
-          </div>
-        </>
+              ))}
+            </div>
+          </PanelState>
+        </div>
       )}
     </Card>
   )
 }
 
-/**
- * QueueMonitorPanel - Shows all queues with message counts and consumer counts.
- */
+function Row({ label, value }) {
+  return (
+    <div className="flex justify-between gap-2">
+      <dt className="text-muted">{label}</dt>
+      <dd className="text-content tabular-nums">{value}</dd>
+    </div>
+  )
+}
+
+/** Every queue, its backlog and its consumers. */
 export function QueueMonitorPanel({ queues = [], loading, error }) {
-  if (loading) return <Card><p className="text-gray-500">Loading queues...</p></Card>
-  if (error) return <Card><p className="text-red-400">Error: {error}</p></Card>
-
   return (
     <Card>
-      <div className="mb-4">
-        <h2 className="text-lg font-bold text-white mb-2">Queue Monitor</h2>
-        <p className="text-xs text-gray-400">View all message queues and their status</p>
-      </div>
-      
-      {/* Legend */}
-      <div className="mb-4 p-3 bg-slate-800 rounded border border-slate-700 text-xs text-gray-300 space-y-1">
-        <p><span className="text-teal-400">Messages</span> = Ready messages waiting for pickup</p>
-        <p><span className="text-emerald-400">Cons</span> = Active consumers listening to queue</p>
-        <p><span className="text-amber-400">Unacked</span> = Messages being processed</p>
-        <p><span className="text-indigo-300">Type</span> = Queue type (classic or quorum)</p>
+      <SectionTitle
+        icon={Network}
+        title="Queue Monitor"
+        description="Backlog, in-flight messages and consumer count per queue"
+      />
+      <div className={LEGEND_CLASS}>
+        <p>
+          <strong className="text-content">Ready</strong> — messages waiting to be delivered
+        </p>
+        <p>
+          <strong className="text-content">Unacked</strong> — delivered but not yet acknowledged
+        </p>
+        <p>
+          <strong className="text-content">Type</strong> — quorum queues replicate across all three
+          nodes
+        </p>
       </div>
 
-      <div className="overflow-x-auto">
-        <table className="w-full text-xs sm:text-sm">
-          <thead>
-            <tr className="border-b border-gray-700">
-              <th className="text-left py-2 px-1 sm:px-2 text-gray-400 font-semibold">Queue Name</th>
-              <th className="text-right py-2 px-1 sm:px-2 text-teal-400 font-semibold hidden sm:table-cell">Messages</th>
-              <th className="text-right py-2 px-1 sm:px-2 text-emerald-400 font-semibold">Cons</th>
-              <th className="text-right py-2 px-1 sm:px-2 text-amber-400 font-semibold hidden lg:table-cell">Unacked</th>
-              <th className="text-center py-2 px-1 sm:px-2 text-indigo-400 font-semibold">Type</th>
-            </tr>
-          </thead>
-          <tbody>
-            {queues.map((q) => (
-              <tr key={q.name} className="border-b border-slate-800 hover:bg-slate-800 transition">
-                <td className="py-2 sm:py-3 px-1 sm:px-2 text-white font-mono text-xs truncate">{q.name}</td>
-                <td className="py-2 sm:py-3 px-1 sm:px-2 text-right text-teal-400 font-semibold hidden sm:table-cell">{q.messages_ready}</td>
-                <td className="py-2 sm:py-3 px-1 sm:px-2 text-right text-emerald-400">{q.consumers}</td>
-                <td className="py-2 sm:py-3 px-1 sm:px-2 text-right text-amber-400 hidden lg:table-cell">{q.messages_unacked || 0}</td>
-                <td className="py-2 sm:py-3 px-1 sm:px-2 text-center">
-                  <Badge status="info" label={q['x-queue-type'] || 'classic'} />
-                </td>
+      <PanelState
+        loading={loading && queues.length === 0}
+        error={queues.length === 0 ? error : null}
+        empty={!loading && queues.length === 0}
+        emptyMessage="No queues declared yet"
+      >
+        <div className="overflow-x-auto scrollbar-thin">
+          <table className="w-full text-xs sm:text-sm">
+            <thead>
+              <tr className="border-b border-line text-muted">
+                <th className="text-left py-2 px-2 font-medium">Queue</th>
+                <th className="text-right py-2 px-2 font-medium">Ready</th>
+                <th className="text-right py-2 px-2 font-medium hidden sm:table-cell">Unacked</th>
+                <th className="text-right py-2 px-2 font-medium">Consumers</th>
+                <th className="text-center py-2 px-2 font-medium hidden lg:table-cell">Type</th>
               </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
+            </thead>
+            <tbody>
+              {queues.map((q) => (
+                <tr key={q.name} className="border-b border-line/60 hover:bg-surface-muted">
+                  <td className="py-2 px-2">
+                    <Mono className="text-content">{q.name}</Mono>
+                  </td>
+                  <td className="py-2 px-2 text-right tabular-nums text-content">
+                    {q.messages_ready ?? 0}
+                  </td>
+                  <td className="py-2 px-2 text-right tabular-nums text-warning hidden sm:table-cell">
+                    {q.messages_unacknowledged ?? q.messages_unacked ?? 0}
+                  </td>
+                  <td className="py-2 px-2 text-right tabular-nums text-content">
+                    {q.consumers ?? 0}
+                  </td>
+                  <td className="py-2 px-2 text-center hidden lg:table-cell">
+                    {/* The Management API reports the type as `type`, or in
+                        `arguments['x-queue-type']` - never as a top-level
+                        `x-queue-type`, which is why every queue used to show
+                        "classic" when they are all quorum. */}
+                    <Badge status="brand" label={queueType(q)} />
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </PanelState>
     </Card>
   )
 }
 
-/**
- * ExchangeMapPanel - Shows all exchanges and their bindings.
- */
+function queueType(queue) {
+  return queue?.type || queue?.arguments?.['x-queue-type'] || 'classic'
+}
+
+/** Exchanges and what they are bound to. */
 export function ExchangeMapPanel({ exchanges = [], bindings = [], loading, error }) {
-  if (loading) return <Card><p className="text-gray-500">Loading exchanges...</p></Card>
-  if (error) return <Card><p className="text-red-400">Error: {error}</p></Card>
+  const bindingsByExchange = bindings.reduce((acc, binding) => {
+    const key = binding.source || 'default'
+    ;(acc[key] ||= []).push(binding)
+    return acc
+  }, {})
 
-  // Group bindings by exchange
-  const bindingsByExchange = {}
-  bindings.forEach((binding) => {
-    const exchangeName = binding.source || 'default'
-    if (!bindingsByExchange[exchangeName]) {
-      bindingsByExchange[exchangeName] = []
-    }
-    bindingsByExchange[exchangeName].push(binding)
-  })
+  const declared = exchanges.filter((e) => e.name && !e.name.startsWith('amq.'))
 
   return (
     <Card>
-      <div className="mb-4">
-        <h2 className="text-lg font-bold text-white mb-2">Exchange Map</h2>
-        <p className="text-xs text-gray-400">Message routing endpoints that connect to queues</p>
-      </div>
-      
-      {/* Exchange Types Legend */}
-      <div className="mb-4 p-2 bg-gray-800 rounded border border-gray-700 text-xs text-gray-300 space-y-1">
-        <p><span className="font-semibold">Direct:</span> Routes by exact routing key match</p>
-        <p><span className="font-semibold">Fanout:</span> Broadcasts to all connected queues</p>
-        <p><span className="font-semibold">Topic:</span> Routes by pattern matching (wildcards)</p>
-        <p><span className="font-semibold">Headers:</span> Routes by message header matching</p>
+      <SectionTitle
+        icon={Share2}
+        title="Exchange Map"
+        description="How each exchange routes messages to queues"
+      />
+      <div className={LEGEND_CLASS}>
+        <p>
+          <strong className="text-content">Direct</strong> — exact routing-key match
+        </p>
+        <p>
+          <strong className="text-content">Fanout</strong> — broadcast to every bound queue
+        </p>
+        <p>
+          <strong className="text-content">Topic</strong> — pattern match with * and #
+        </p>
+        <p>
+          <strong className="text-content">Headers</strong> — match on message headers, not the key
+        </p>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2 sm:gap-4">
-        {exchanges.filter(e => !e.name.startsWith('amq.')).map((ex) => {
-          const exBindings = bindingsByExchange[ex.name] || []
-          return (
-            <div key={ex.name} className="border border-gray-700 rounded p-2 sm:p-3 bg-gray-800">
-              <div className="mb-3">
-                <p className="text-sm font-semibold text-white truncate">{ex.name}</p>
-                <div className="flex gap-2 mt-1">
-                  <Badge status="info" label={ex.type} />
-                  <Badge status="warning" label={`${exBindings.length} binding${exBindings.length !== 1 ? 's' : ''}`} />
+      <PanelState
+        loading={loading && declared.length === 0}
+        error={declared.length === 0 ? error : null}
+        empty={!loading && declared.length === 0}
+        emptyMessage="No exchanges declared yet"
+      >
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+          {declared.map((exchange) => {
+            const exBindings = bindingsByExchange[exchange.name] || []
+            return (
+              <div
+                key={exchange.name}
+                className="border border-line rounded-[var(--radius)] p-3 bg-surface-muted"
+              >
+                <Mono className="block font-medium text-content truncate">{exchange.name}</Mono>
+                <div className="flex gap-1.5 mt-2 flex-wrap">
+                  <Badge status="brand" label={exchange.type} />
+                  <Badge
+                    status="offline"
+                    label={`${exBindings.length} binding${exBindings.length === 1 ? '' : 's'}`}
+                  />
                 </div>
+
+                {exBindings.length > 0 ? (
+                  <ul className="space-y-1.5 mt-3">
+                    {exBindings.map((binding, index) => (
+                      <li
+                        key={`${binding.destination}-${binding.routing_key}-${index}`}
+                        className="bg-surface rounded border border-line p-2"
+                      >
+                        <Mono className="block text-content truncate">{binding.destination}</Mono>
+                        {binding.routing_key && (
+                          <p className="text-xs text-muted mt-1">
+                            key <Mono className="text-accent">{binding.routing_key}</Mono>
+                          </p>
+                        )}
+                        {binding.arguments && Object.keys(binding.arguments).length > 0 && (
+                          <p className="text-xs text-muted mt-1 truncate">
+                            <Mono>{JSON.stringify(binding.arguments)}</Mono>
+                          </p>
+                        )}
+                      </li>
+                    ))}
+                  </ul>
+                ) : (
+                  <p className="text-xs text-subtle mt-3">No bindings</p>
+                )}
               </div>
-              
-              {exBindings.length > 0 ? (
-                <div className="space-y-2">
-                  {exBindings.map((binding, idx) => (
-                    <div key={idx} className="bg-gray-900 rounded p-1 sm:p-2 text-xs border border-gray-600">
-                      <p className="text-gray-300">
-                        <span className="text-cyan-400 font-mono truncate block">{binding.destination}</span>
-                      </p>
-                      {binding.routing_key && (
-                        <p className="text-gray-500 mt-1">
-                          Key: <span className="text-yellow-400 font-mono">{binding.routing_key}</span>
-                        </p>
-                      )}
-                      {binding.arguments && Object.keys(binding.arguments).length > 0 && (
-                        <p className="text-gray-500 mt-1 truncate">
-                          Args: <span className="text-purple-400 text-xs">{JSON.stringify(binding.arguments).slice(0, 35)}</span>
-                        </p>
-                      )}
-                    </div>
-                  ))}
-                </div>
-              ) : (
-                <p className="text-xs text-gray-500 italic">No bindings</p>
-              )}
-            </div>
-          )
-        })}
-      </div>
+            )
+          })}
+        </div>
+      </PanelState>
     </Card>
   )
 }
 
-/**
- * ConsumerStatusPanel - Shows active consumers and their channels.
- */
-export function ConsumerStatusPanel({ consumers = [], loading, error }) {
-  if (loading) return <Card><p className="text-gray-500">Loading consumers...</p></Card>
-  if (error) return <Card><p className="text-red-400">Error: {error}</p></Card>
+/** Live consumer subscriptions, plus each container's state from the chaos service. */
+export function ConsumerStatusPanel({ consumers = [], status, loading, error }) {
+  const containerStates = status?.consumers || {}
 
   return (
     <Card>
-      <div className="mb-4">
-        <h2 className="text-lg font-bold text-white mb-2">Consumer Status</h2>
-        <p className="text-xs text-gray-400">Active message consumers and their configuration</p>
-      </div>
-      
-      {/* Consumer Legend */}
-      <div className="mb-4 p-2 bg-gray-800 rounded border border-gray-700 text-xs text-gray-300 space-y-1">
-        <p><span className="text-gray-400">Queue:</span> Which queue the consumer is listening to</p>
-        <p><span className="text-gray-400">Prefetch:</span> Max messages to fetch at once before ACK</p>
-        <p><span className="text-green-400">Mode:</span> <span className="text-gray-300">Manual = explicit ACK required, Auto = auto-acknowledge</span></p>
+      <SectionTitle
+        icon={Users}
+        title="Consumer Status"
+        description="Active subscriptions and the container behind each one"
+      />
+      <div className={LEGEND_CLASS}>
+        <p>
+          <strong className="text-content">Prefetch</strong> — messages delivered before an
+          acknowledgement is required; 1 gives true fair dispatch
+        </p>
+        <p>
+          <strong className="text-content">Manual</strong> — the consumer explicitly ACKs, so a
+          crash requeues the message
+        </p>
       </div>
 
-      <div className="overflow-x-auto">
-        <table className="w-full text-xs sm:text-sm">
-          <thead>
-            <tr className="border-b border-gray-700">
-              <th className="text-left py-2 px-1 sm:px-2 text-gray-400 font-semibold">Queue</th>
-              <th className="text-left py-2 px-1 sm:px-2 text-gray-400 font-semibold hidden sm:table-cell">Consumer Tag</th>
-              <th className="text-right py-2 px-1 sm:px-2 text-gray-400 font-semibold hidden lg:table-cell">Prefetch</th>
-              <th className="text-center py-2 px-1 sm:px-2 text-gray-400 font-semibold">Mode</th>
-            </tr>
-          </thead>
-          <tbody>
-            {consumers.map((c) => (
-              <tr key={c.consumer_tag} className="border-b border-gray-800 hover:bg-gray-800">
-                <td className="py-2 sm:py-3 px-1 sm:px-2 text-white font-mono text-xs truncate">{c.queue?.name || 'N/A'}</td>
-                <td className="py-2 sm:py-3 px-1 sm:px-2 text-gray-300 text-xs truncate hidden sm:table-cell">{c.consumer_tag}</td>
-                <td className="py-2 sm:py-3 px-1 sm:px-2 text-right text-orange-400 hidden lg:table-cell">{c.prefetch_count}</td>
-                <td className="py-2 sm:py-3 px-1 sm:px-2 text-center">
-                  <Badge status="success" label={c.ack_required ? 'Manual' : 'Auto'} />
-                </td>
+      {Object.keys(containerStates).length > 0 && (
+        <div className="flex flex-wrap gap-1.5 mb-4">
+          {Object.entries(containerStates).map(([name, state]) => (
+            <Badge
+              key={name}
+              status={
+                state === 'consuming' ? 'healthy' : state === 'stopped' ? 'error' : 'warning'
+              }
+              label={`${name}: ${state}`}
+            />
+          ))}
+        </div>
+      )}
+
+      <PanelState
+        loading={loading && consumers.length === 0}
+        error={consumers.length === 0 ? error : null}
+        empty={!loading && consumers.length === 0}
+        emptyMessage="No active consumers"
+      >
+        <div className="overflow-x-auto scrollbar-thin">
+          <table className="w-full text-xs sm:text-sm">
+            <thead>
+              <tr className="border-b border-line text-muted">
+                <th className="text-left py-2 px-2 font-medium">Queue</th>
+                <th className="text-left py-2 px-2 font-medium hidden sm:table-cell">
+                  Consumer tag
+                </th>
+                <th className="text-right py-2 px-2 font-medium hidden lg:table-cell">Prefetch</th>
+                <th className="text-center py-2 px-2 font-medium">Ack mode</th>
               </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
+            </thead>
+            <tbody>
+              {consumers.map((c) => (
+                <tr
+                  key={c.consumer_tag}
+                  className="border-b border-line/60 hover:bg-surface-muted"
+                >
+                  <td className="py-2 px-2">
+                    <Mono className="text-content">{c.queue?.name || 'N/A'}</Mono>
+                  </td>
+                  <td className="py-2 px-2 hidden sm:table-cell">
+                    <Mono className="text-muted">{c.consumer_tag}</Mono>
+                  </td>
+                  <td className="py-2 px-2 text-right tabular-nums text-content hidden lg:table-cell">
+                    {c.prefetch_count}
+                  </td>
+                  <td className="py-2 px-2 text-center">
+                    <Badge
+                      status={c.ack_required ? 'healthy' : 'warning'}
+                      label={c.ack_required ? 'Manual' : 'Auto'}
+                    />
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </PanelState>
     </Card>
   )
 }
 
-// Helper functions
 function formatBytes(bytes) {
-  if (bytes === 0) return '0 B'
-  const k = 1024
-  const sizes = ['B', 'KB', 'MB', 'GB']
-  const i = Math.floor(Math.log(bytes) / Math.log(k))
-  return Math.round(bytes / Math.pow(k, i) * 100) / 100 + ' ' + sizes[i]
+  if (!bytes) return '—'
+  const units = ['B', 'KB', 'MB', 'GB', 'TB']
+  const i = Math.min(Math.floor(Math.log(bytes) / Math.log(1024)), units.length - 1)
+  return `${Math.round((bytes / 1024 ** i) * 100) / 100} ${units[i]}`
 }
 
 function formatUptime(ms) {
+  if (!ms) return '—'
   const seconds = Math.floor(ms / 1000)
   const minutes = Math.floor(seconds / 60)
   const hours = Math.floor(minutes / 60)
   const days = Math.floor(hours / 24)
-  if (days > 0) return `${days}d`
-  if (hours > 0) return `${hours}h`
+  if (days > 0) return `${days}d ${hours % 24}h`
+  if (hours > 0) return `${hours}h ${minutes % 60}m`
   if (minutes > 0) return `${minutes}m`
   return `${seconds}s`
 }

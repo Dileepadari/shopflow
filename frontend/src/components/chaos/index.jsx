@@ -1,445 +1,360 @@
-import React, { useState, useEffect } from 'react'
-import { AlertTriangle, Zap, Square, Play, Pause, RotateCcw, Trash2 } from 'lucide-react'
-import { Card, Button, LoadingSpinner, Stat, Badge } from '../ui/index'
+import { useMemo, useState } from 'react'
+import {
+  Bomb,
+  CircleStop,
+  History,
+  Pause,
+  Play,
+  RotateCcw,
+  ServerCog,
+  Skull,
+  Trash2,
+  Unplug,
+  Waves,
+  Zap,
+} from 'lucide-react'
+
 import * as chaos from '../../api/chaos'
-import { useInterval } from '../../hooks/useInterval'
-import clsx from 'clsx'
+import { Badge, Button, Card, EmptyState, Mono, SectionTitle } from '../ui/index'
+
+const BROKER_NODES = ['rabbit1', 'rabbit2', 'rabbit3']
+
+const FIELD_LABEL = 'block text-xs font-medium text-muted mb-1'
+const FIELD_INPUT =
+  'w-full px-2.5 py-2 bg-surface-muted border border-line rounded-[var(--radius)] text-sm text-content focus:border-brand outline-none'
+
+/** What each consumer does, so the operator knows what breaking it will show. */
+const CONSUMER_NOTES = {
+  payment_consumer: 'Processes payments (2–5s each). The slowest queue, so backlog builds fastest here.',
+  inventory_consumer: 'Reserves stock (0.5–2s each).',
+  email_consumer: 'Fanout subscriber — email confirmations.',
+  sms_consumer: 'Fanout subscriber — SMS alerts.',
+  push_consumer: 'Fanout subscriber — push notifications.',
+  log_error_consumer: 'Persists error logs to the shared volume.',
+  log_info_consumer: 'Prints info and debug logs.',
+  notif_email_consumer: 'Topic routing — notification.email.*',
+  notif_sms_consumer: 'Topic routing — notification.sms.urgent only.',
+  notif_audit_consumer: 'Topic routing — receives everything via #.',
+  eu_processor: 'Headers routing — region=EU, format=json.',
+  us_processor: 'Headers routing — region=US, format=json.',
+  xml_legacy_consumer: 'Headers routing — format=xml, any region.',
+  dead_letter_consumer: 'Drains the DLX. Stopping it stops dead letters being recorded.',
+}
+
+function noteFor(service) {
+  if (CONSUMER_NOTES[service]) return CONSUMER_NOTES[service]
+  // payment_consumer_1 -> payment_consumer
+  const base = service.replace(/_\d+$/, '')
+  return CONSUMER_NOTES[base] || 'Consumer container.'
+}
+
+function stateBadge(state) {
+  if (state === 'consuming' || state === 'running') return 'healthy'
+  if (state === 'stopped' || state === 'exited') return 'error'
+  return 'warning'
+}
 
 /**
- * ChaosControlPanel - Master control panel for failure injection testing.
- * Demonstrates system resilience under various failure conditions.
- * 
- * Key Concepts:
- * - Stop: Gracefully shutdown (SIGTERM) - consumer can clean up
- * - Kill: Force kill (SIGKILL) - immediate termination
- * - Pause: Freeze process - still consuming but not processing
- * - Purge: Delete all messages in queue
- * - Poison: Inject malformed messages that cause errors
- * - Flood: Send many messages to stress test
+ * Fault injection controls.
+ *
+ * Status comes from the shared dashboard poll rather than a second interval of
+ * its own, so the whole page reflects one consistent snapshot.
  */
-export function ChaosControlPanel({ queues = [], exchanges = [] }) {
-  const [status, setStatus] = useState(null)
-  const [loading, setLoading] = useState(true)
+export function ChaosControlPanel({ queues = [], status }) {
   const [actionLog, setActionLog] = useState([])
-  const [selectedService, setSelectedService] = useState('payment_consumer_1')
-  const [selectedQueue, setSelectedQueue] = useState('payment_queue')
-  const [delayMs, setDelayMs] = useState(5000)
   const [acting, setActing] = useState(false)
+  const [selectedService, setSelectedService] = useState('')
+  const [selectedQueue, setSelectedQueue] = useState('payment_queue')
   const [selectedBroker, setSelectedBroker] = useState('rabbit1')
+  const [floodCount, setFloodCount] = useState(100)
+  const [poisonCount, setPoisonCount] = useState(5)
 
-  // Fetch chaos status every 2 seconds
-  useInterval(async () => {
+  const services = useMemo(() => {
+    if (!status?.services) return []
+    return Object.entries(status.services)
+      .filter(([name]) => name.includes('consumer') || name.includes('processor'))
+      .map(([name, info]) => ({ name, ...info }))
+      .sort((a, b) => a.name.localeCompare(b.name))
+  }, [status])
+
+  const queueNames = useMemo(
+    () => queues.map((q) => q.name).filter((n) => n !== 'dead_letter_queue').sort(),
+    [queues]
+  )
+
+  const service = selectedService || services[0]?.name || ''
+  const queueChoices = queueNames.length > 0 ? queueNames : [selectedQueue]
+
+  const run = async (fn, label, detail = '') => {
+    setActing(true)
     try {
-      const s = await chaos.getStatus()
-      setStatus(s)
+      const response = await fn()
+      const text =
+        typeof response?.result === 'string'
+          ? response.result
+          : response?.result?.message || 'done'
+      log(label, true, `${detail}${detail ? ' — ' : ''}${text}`)
     } catch (err) {
-      console.error('Failed to fetch chaos status:', err)
-    }
-  }, 2000)
-
-  const logAction = (action, result, details) => {
-    const entry = {
-      timestamp: new Date().toLocaleTimeString(),
-      action,
-      result,
-      details,
-    }
-    setActionLog((prev) => [entry, ...prev.slice(0, 14)])
-  }
-
-  const executeAction = async (fn, actionName, details = '') => {
-    try {
-      setActing(true)
-      const result = await fn()
-      logAction(actionName, 'Success', details)
-    } catch (err) {
-      logAction(actionName, `Error: ${err.message}`, details)
+      log(label, false, err.message)
     } finally {
       setActing(false)
     }
   }
 
-  const getServicesByType = (type) => {
-    if (!status?.services) return []
-    return Object.entries(status.services)
-      .filter(([name]) => name.includes(type))
-      .map(([name, info]) => ({ name, ...info }))
-  }
-
-  const consumers = getServicesByType('consumer')
-  const processors = getServicesByType('processor')
-  const allServices = [...consumers, ...processors]
-
-  // Consumer metadata for descriptions
-  const consumerInfo = {
-    payment_consumer: 'Processes payments (2-5s each). Killing affects payment processing.',
-    inventory_consumer: 'Reserves inventory (0.5-2s each). Critical for stock management.',
-    email_consumer: 'Sends email notifications. Pause to test resilience.',
-    sms_consumer: 'Sends SMS notifications. Test message buffering.',
-    push_consumer: 'Sends push notifications. Fast operation.',
-    log_error_consumer: 'Logs errors to file. Impacts error tracking.',
-    log_info_consumer: 'Logs info messages. Less critical.',
-    notif_email_consumer: 'Email notifications by pattern. Test topic routing.',
-    notif_sms_consumer: 'Urgent SMS notifications. Test selective routing.',
-    notif_audit_consumer: 'Audits all notifications. Compliance critical.',
-    eu_processor: 'Processes EU region orders. Test region failover.',
-    us_processor: 'Processes US region orders. Test region failover.',
-    xml_legacy_consumer: 'Handles legacy XML format. Test format compatibility.',
-    dead_letter_consumer: 'Captures failed messages. Critical for debugging.',
-  }
-
-  const getConsumerDescription = (service) => {
-    const prefix = service.split('_').slice(0, -1).join('_')
-    return consumerInfo[prefix] || 'Unknown consumer'
+  const log = (action, ok, detail) => {
+    setActionLog((previous) =>
+      [{ time: new Date().toLocaleTimeString(), action, ok, detail }, ...previous].slice(0, 20)
+    )
   }
 
   return (
     <div className="space-y-4">
-      <Card className="bg-red-950 border-red-800">
-        <div className="mb-2 flex items-center gap-2">
-          <Zap className="w-5 h-5 text-red-400" />
+      <Card className="border-warning/40 bg-warning-soft">
+        <div className="flex items-start gap-2">
+          <Zap className="w-4 h-4 mt-0.5 text-warning shrink-0" />
           <div>
-            <h2 className="text-lg font-bold text-red-300">Chaos Engineering Control Panel</h2>
-            <p className="text-xs text-red-400 mt-1">
-              Inject failures to test system resilience. Effects are reversible. Monitor the system's response!
+            <h2 className="text-sm font-semibold text-content">Chaos Control Panel</h2>
+            <p className="text-xs text-muted mt-1">
+              Inject faults and watch the system recover on the other tabs. Every action here is
+              reversible — “Restore all” brings back any container this panel stopped.
             </p>
           </div>
         </div>
       </Card>
 
-      {/* CONSUMER CHAOS */}
+      {/* ----------------------------------------------------------- consumers */}
       <Card>
-        <h3 className="text-sm font-semibold text-orange-400 mb-3">🔴 Consumer Controls</h3>
-        <p className="text-xs text-gray-400 mb-3">
-          Test consumer failures: Stop (graceful), Kill (force), Pause (freeze processing), Resume, or Start
-        </p>
+        <SectionTitle
+          icon={ServerCog}
+          title="Consumer faults"
+          description="Stop is graceful, kill is a SIGKILL, pause freezes the process with its connection still open"
+        />
 
-        <div className="mb-4">
-          <label className="text-xs font-semibold text-gray-300 block mb-2">Select Consumer or Processor</label>
-          {allServices.length === 0 ? (
-            <p className="text-xs text-gray-500">No services found. Start containers first.</p>
-          ) : (
-            <>
+        {services.length === 0 ? (
+          <EmptyState message="No consumer containers reporting — is the chaos service running?" />
+        ) : (
+          <>
+            <div className="mb-3">
+              <label className={FIELD_LABEL} htmlFor="chaos-service">
+                Consumer
+              </label>
               <select
-                value={selectedService}
+                id="chaos-service"
+                value={service}
                 onChange={(e) => setSelectedService(e.target.value)}
-                className="w-full px-2 py-2 bg-gray-800 border border-orange-600 rounded text-sm text-white font-semibold mb-2"
+                className={FIELD_INPUT}
               >
-                {allServices.map((svc) => (
-                  <option key={svc.name} value={svc.name}>
-                    {svc.name} ({svc.connection || svc.state || 'running'})
+                {services.map((s) => (
+                  <option key={s.name} value={s.name}>
+                    {s.name} — {s.connection || s.state}
                   </option>
                 ))}
               </select>
-              <div className="bg-gray-900 rounded p-2 mb-3 border border-gray-700">
-                <p className="text-xs text-gray-300">
-                  <strong>Role:</strong> {getConsumerDescription(selectedService)}
-                </p>
-                <p className="text-xs text-gray-400 mt-1">
-                  <strong>Impact:</strong> This consumer will be affected by the action below.
-                </p>
-              </div>
-            </>
-          )}
-        </div>
-
-        <div className="grid grid-cols-2 md:grid-cols-5 gap-2">
-          <div className="flex flex-col gap-1">
-            <div className="text-xs text-gray-500 font-semibold">Graceful Stop</div>
-            <Button
-              variant="danger"
-              onClick={() => executeAction(() => chaos.stopConsumer(selectedService), `Stop ${selectedService}`, 'SIGTERM - allows cleanup')}
-              disabled={acting || !selectedService}
-              className="text-xs py-2"
-            >
-              Stop
-            </Button>
-            <p className="text-xs text-gray-600">SIGTERM: allows cleanup</p>
-          </div>
-
-          <div className="flex flex-col gap-1">
-            <div className="text-xs text-gray-500 font-semibold">Force Kill</div>
-            <Button
-              variant="danger"
-              onClick={() => executeAction(() => chaos.killConsumer(selectedService), `Kill ${selectedService}`, 'SIGKILL - immediate')}
-              disabled={acting || !selectedService}
-              className="text-xs py-2"
-            >
-              Kill (SIGKILL)
-            </Button>
-            <p className="text-xs text-gray-600">Immediate halt</p>
-          </div>
-
-          <div className="flex flex-col gap-1">
-            <div className="text-xs text-gray-500 font-semibold">Freeze</div>
-            <Button
-              variant="warning"
-              onClick={() => executeAction(() => chaos.pauseConsumer(selectedService), `Pause ${selectedService}`, 'Process frozen')}
-              disabled={acting || !selectedService}
-              className="text-xs py-2"
-            >
-              Pause
-            </Button>
-            <p className="text-xs text-gray-600">Freeze processing</p>
-          </div>
-
-          <div className="flex flex-col gap-1">
-            <div className="text-xs text-gray-500 font-semibold">Unfreeze</div>
-            <Button
-              variant="secondary"
-              onClick={() => executeAction(() => chaos.resumeConsumer(selectedService), `Resume ${selectedService}`, 'Process resumed')}
-              disabled={acting || !selectedService}
-              className="text-xs py-2"
-            >
-              Resume
-            </Button>
-            <p className="text-xs text-gray-600">Resume frozen</p>
-          </div>
-
-          <div className="flex flex-col gap-1">
-            <div className="text-xs text-gray-500 font-semibold">Restart</div>
-            <Button
-              variant="success"
-              onClick={() => executeAction(() => chaos.startConsumer(selectedService), `Start ${selectedService}`, 'Container restarted')}
-              disabled={acting || !selectedService}
-              className="text-xs py-2"
-            >
-              Start
-            </Button>
-            <p className="text-xs text-gray-600">Restart container</p>
-          </div>
-        </div>
-
-        <div className="mt-4 bg-blue-950 border border-blue-800 rounded p-2">
-          <p className="text-xs text-blue-300">
-            <strong>Expected Result:</strong> Messages queue up as consumer can't process. If stopped, DLX may capture failed messages after retries exhaust.
-          </p>
-        </div>
-      </Card>
-
-      {/* BROKER CHAOS */}
-      <Card>
-        <h3 className="text-sm font-semibold text-red-400 mb-3">🔴 Broker Node Controls (RabbitMQ)</h3>
-        <p className="text-xs text-gray-400 mb-3">
-          Test broker failures. RabbitMQ cluster has 3 nodes (rabbit1, rabbit2, rabbit3). Stopping one tests failover.
-        </p>
-
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          {['rabbit1', 'rabbit2', 'rabbit3'].map((node) => (
-            <div key={node} className="border border-gray-700 rounded p-3 bg-gray-900">
-              <div className="mb-3">
-                <p className="text-sm font-semibold text-orange-400">{node}</p>
-                <p className="text-xs text-gray-500">RabbitMQ Node</p>
-              </div>
-
-              <div className="space-y-2">
-                <Button
-                  variant="danger"
-                  onClick={() => executeAction(() => chaos.stopBroker(node), `Stop ${node}`, 'Graceful shutdown')}
-                  disabled={acting}
-                  className="w-full text-xs py-1"
-                >
-                  Stop (Graceful)
-                </Button>
-                <Button
-                  variant="danger"
-                  onClick={() => executeAction(() => chaos.killBroker(node), `Kill ${node}`, 'Force shutdown')}
-                  disabled={acting}
-                  className="w-full text-xs py-1"
-                >
-                  Kill (Force)
-                </Button>
-                <Button
-                  variant="success"
-                  onClick={() => executeAction(() => chaos.startBroker(node), `Start ${node}`, 'Node restart')}
-                  disabled={acting}
-                  className="w-full text-xs py-1"
-                >
-                  Start
-                </Button>
-              </div>
+              <p className="text-xs text-muted mt-1.5">{noteFor(service)}</p>
             </div>
-          ))}
-        </div>
 
-        <div className="mt-4 bg-blue-950 border border-blue-800 rounded p-2">
-          <p className="text-xs text-blue-300">
-            <strong>Expected Result:</strong> If 1 node stops, cluster continues (quorum maintained). If 2+ nodes stop, cluster fails. Messages may be lost or delayed.
-          </p>
-        </div>
+            <div className="flex flex-wrap gap-2">
+              <Button variant="secondary" disabled={acting}
+                onClick={() => run(() => chaos.stopConsumer(service), 'Stop consumer', service)}>
+                <CircleStop className="w-3.5 h-3.5" /> Stop
+              </Button>
+              <Button variant="danger" disabled={acting}
+                onClick={() => run(() => chaos.killConsumer(service), 'Kill consumer', service)}>
+                <Skull className="w-3.5 h-3.5" /> Kill
+              </Button>
+              <Button variant="warning" disabled={acting}
+                onClick={() => run(() => chaos.pauseConsumer(service), 'Pause consumer', service)}>
+                <Pause className="w-3.5 h-3.5" /> Pause
+              </Button>
+              <Button variant="secondary" disabled={acting}
+                onClick={() => run(() => chaos.resumeConsumer(service), 'Resume consumer', service)}>
+                <Play className="w-3.5 h-3.5" /> Resume
+              </Button>
+              <Button variant="success" disabled={acting}
+                onClick={() => run(() => chaos.startConsumer(service), 'Start consumer', service)}>
+                <Play className="w-3.5 h-3.5" /> Start
+              </Button>
+            </div>
+
+            <div className="flex flex-wrap gap-1.5 mt-4">
+              {services.map((s) => (
+                <Badge
+                  key={s.name}
+                  status={stateBadge(s.connection || s.state)}
+                  label={`${s.name}: ${s.connection || s.state}`}
+                />
+              ))}
+            </div>
+          </>
+        )}
       </Card>
 
-      {/* QUEUE CHAOS */}
+      {/* ------------------------------------------------------------- brokers */}
       <Card>
-        <h3 className="text-sm font-semibold text-yellow-400 mb-3">🟡 Queue & Message Controls</h3>
-        <p className="text-xs text-gray-400 mb-3">
-          Manipulate queue contents: Purge (delete), Poison (inject bad data), or Flood (stress test)
-        </p>
-
-        <div className="mb-4">
-          <label className="text-xs font-semibold text-gray-300 block mb-2">Select Queue</label>
+        <SectionTitle
+          icon={ServerCog}
+          title="Broker faults"
+          description="Take a cluster node down and watch HAProxy reroute while the quorum queues elect a new leader"
+        />
+        <div className="mb-3 max-w-xs">
+          <label className={FIELD_LABEL} htmlFor="chaos-broker">
+            Node
+          </label>
           <select
-            value={selectedQueue}
-            onChange={(e) => setSelectedQueue(e.target.value)}
-            className="w-full px-2 py-2 bg-gray-800 border border-yellow-600 rounded text-sm text-white font-semibold"
+            id="chaos-broker"
+            value={selectedBroker}
+            onChange={(e) => setSelectedBroker(e.target.value)}
+            className={FIELD_INPUT}
           >
-            {queues.map((q) => (
-              <option key={q.name} value={q.name}>
-                {q.name} ({q.messages_ready} msgs, {q.consumers} consumers)
+            {BROKER_NODES.map((node) => (
+              <option key={node} value={node}>
+                {node}
               </option>
             ))}
           </select>
         </div>
-
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
-          {/* Purge */}
-          <div className="border border-red-700 rounded p-3 bg-gray-900">
-            <p className="text-xs font-semibold text-red-400 mb-2">Purge Queue</p>
-            <p className="text-xs text-gray-500 mb-2">Delete ALL messages in queue</p>
-            <Button
-              variant="danger"
-              onClick={() => executeAction(() => chaos.purgeQueue(selectedQueue), `Purge ${selectedQueue}`, `All messages deleted`)}
-              disabled={acting}
-              className="w-full text-xs"
-            >
-              Purge Now
-            </Button>
-            <p className="text-xs text-gray-600 mt-2">
-              <AlertTriangle className="w-4 h-4 inline mr-1 text-red-500" />
-              Destructive - messages lost
-            </p>
-          </div>
-
-          {/* Inject Poison - Single */}
-          <div className="border border-orange-700 rounded p-3 bg-gray-900">
-            <p className="text-xs font-semibold text-orange-400 mb-2">Poison (1 message)</p>
-            <p className="text-xs text-gray-500 mb-2">Inject 1 malformed message</p>
-            <Button
-              variant="warning"
-              onClick={() => executeAction(() => chaos.injectPoison(selectedQueue, 1), `Poison ${selectedQueue} (1x)`, `1 poisoned message added`)}
-              disabled={acting}
-              className="w-full text-xs"
-            >
-              Inject (1x)
-            </Button>
-            <p className="text-xs text-gray-600 mt-2">Consumer will error & retry</p>
-          </div>
-
-          {/* Inject Poison - Multiple */}
-          <div className="border border-orange-700 rounded p-3 bg-gray-900">
-            <p className="text-xs font-semibold text-orange-400 mb-2">Poison (5 messages)</p>
-            <p className="text-xs text-gray-500 mb-2">Inject 5 malformed messages</p>
-            <Button
-              variant="warning"
-              onClick={() => executeAction(() => chaos.injectPoison(selectedQueue, 5), `Poison ${selectedQueue} (5x)`, `5 poisoned messages added`)}
-              disabled={acting}
-              className="w-full text-xs"
-            >
-              Inject (5x)
-            </Button>
-            <p className="text-xs text-gray-600 mt-2">Test error handling</p>
-          </div>
-
-          {/* Flood */}
-          <div className="border border-yellow-700 rounded p-3 bg-gray-900">
-            <p className="text-xs font-semibold text-yellow-400 mb-2">Flood Selected Queue</p>
-            <p className="text-xs text-gray-500 mb-2">Send 100 messages to {selectedQueue}</p>
-            <Button
-              variant="warning"
-              onClick={() => executeAction(() => chaos.floodQueue(selectedQueue, 100), `Flood ${selectedQueue}`, `100 messages sent`)}
-              disabled={acting || !selectedQueue}
-              className="w-full text-xs"
-            >
-              Flood {selectedQueue} (100 msgs)
-            </Button>
-            <p className="text-xs text-gray-600 mt-2">Load test the selected queue</p>
-          </div>
-        </div>
-
-        <div className="mt-4 space-y-2">
-          <div className="bg-slate-800 border border-slate-700 rounded p-2">
-            <p className="text-xs text-slate-300">
-              <Trash2 className="w-3 h-3 inline mr-1" />
-              <strong>Purge:</strong> Deletes all pending messages. Useful for cleanup.
-            </p>
-          </div>
-          <div className="bg-slate-800 border border-slate-700 rounded p-2">
-            <p className="text-xs text-slate-300">
-              <AlertTriangle className="w-3 h-3 inline mr-1" />
-              <strong>Poison:</strong> Sends bad JSON that causes parsing errors. Consumer errors and messages go to DLX after retries.
-            </p>
-          </div>
-          <div className="bg-slate-800 border border-slate-700 rounded p-2">
-            <p className="text-xs text-slate-300">
-              <Zap className="w-3 h-3 inline mr-1" />
-              <strong>Flood:</strong> Rapid fire 100 messages to queue. Tests consumer throughput and backpressure.
-            </p>
-          </div>
+        <div className="flex flex-wrap gap-2">
+          <Button variant="secondary" disabled={acting}
+            onClick={() => run(() => chaos.stopBroker(selectedBroker), 'Stop broker', selectedBroker)}>
+            <CircleStop className="w-3.5 h-3.5" /> Stop node
+          </Button>
+          <Button variant="danger" disabled={acting}
+            onClick={() => run(() => chaos.killBroker(selectedBroker), 'Kill broker', selectedBroker)}>
+            <Skull className="w-3.5 h-3.5" /> Kill node
+          </Button>
+          <Button variant="success" disabled={acting}
+            onClick={() => run(() => chaos.startBroker(selectedBroker), 'Start broker', selectedBroker)}>
+            <Play className="w-3.5 h-3.5" /> Start node
+          </Button>
         </div>
       </Card>
 
-      {/* GLOBAL CONTROLS */}
+      {/* -------------------------------------------------------------- queues */}
       <Card>
-        <h3 className="text-sm font-semibold text-green-400 mb-3">🟢 Global Controls</h3>
-        <p className="text-xs text-gray-400 mb-3">
-          System-wide operations: disconnect all or restore everything
+        <SectionTitle
+          icon={Waves}
+          title="Queue faults"
+          description="Purge a backlog, inject messages that always fail, or flood a queue to build one up"
+        />
+
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-3">
+          <div>
+            <label className={FIELD_LABEL} htmlFor="chaos-queue">
+              Queue
+            </label>
+            <select
+              id="chaos-queue"
+              value={selectedQueue}
+              onChange={(e) => setSelectedQueue(e.target.value)}
+              className={FIELD_INPUT}
+            >
+              {queueChoices.map((name) => (
+                <option key={name} value={name}>
+                  {name}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <label className={FIELD_LABEL} htmlFor="chaos-poison">
+              Poison messages
+            </label>
+            <input
+              id="chaos-poison"
+              type="number"
+              min="1"
+              max="500"
+              value={poisonCount}
+              onChange={(e) => setPoisonCount(Math.max(1, Number.parseInt(e.target.value, 10) || 1))}
+              className={FIELD_INPUT}
+            />
+          </div>
+          <div>
+            <label className={FIELD_LABEL} htmlFor="chaos-flood">
+              Flood count
+            </label>
+            <input
+              id="chaos-flood"
+              type="number"
+              min="1"
+              max="5000"
+              value={floodCount}
+              onChange={(e) => setFloodCount(Math.max(1, Number.parseInt(e.target.value, 10) || 1))}
+              className={FIELD_INPUT}
+            />
+          </div>
+        </div>
+
+        <div className="flex flex-wrap gap-2">
+          <Button variant="secondary" disabled={acting}
+            onClick={() => run(() => chaos.purgeQueue(selectedQueue), 'Purge queue', selectedQueue)}>
+            <Trash2 className="w-3.5 h-3.5" /> Purge
+          </Button>
+          <Button variant="warning" disabled={acting}
+            onClick={() =>
+              run(
+                () => chaos.injectPoison(selectedQueue, poisonCount),
+                'Inject poison',
+                `${poisonCount} into ${selectedQueue}`
+              )
+            }>
+            <Bomb className="w-3.5 h-3.5" /> Inject {poisonCount} poison
+          </Button>
+          <Button variant="warning" disabled={acting}
+            onClick={() =>
+              run(
+                () => chaos.floodQueue(selectedQueue, floodCount),
+                'Flood queue',
+                `${floodCount} into ${selectedQueue}`
+              )
+            }>
+            <Waves className="w-3.5 h-3.5" /> Flood {floodCount}
+          </Button>
+        </div>
+        <p className="text-xs text-muted mt-3">
+          Poison messages fail to decode, so each is dead-lettered and shows up on the DLX Audit tab.
         </p>
+      </Card>
 
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-          <div className="border border-red-700 rounded p-3 bg-gray-900">
-            <p className="text-xs font-semibold text-red-400 mb-2">Disconnect All</p>
-            <p className="text-xs text-gray-500 mb-2">Break all AMQP connections</p>
-            <Button
-              variant="danger"
-              onClick={() => executeAction(() => chaos.dropAllConnections(), `Disconnect all`, `All connections dropped`)}
-              disabled={acting}
-              className="w-full text-xs"
-            >
-              Drop All Connections
-            </Button>
-            <p className="text-xs text-gray-600 mt-2">Severe - tests reconnection logic</p>
-          </div>
-
-          <div className="border border-green-700 rounded p-3 bg-gray-900">
-            <p className="text-xs font-semibold text-green-400 mb-2">Restore All</p>
-            <p className="text-xs text-gray-500 mb-2">Restart all services</p>
-            <Button
-              variant="success"
-              onClick={() => executeAction(() => chaos.restoreAll(), `Restore all services`, `All services restarted`)}
-              disabled={acting}
-              className="w-full text-xs"
-            >
-              Restore All
-            </Button>
-            <p className="text-xs text-gray-600 mt-2">Reset to normal state</p>
-          </div>
+      {/* -------------------------------------------------------------- global */}
+      <Card>
+        <SectionTitle
+          icon={RotateCcw}
+          title="Global controls"
+          description="Drop every connection, or bring the whole stack back"
+        />
+        <div className="flex flex-wrap gap-2">
+          <Button variant="warning" disabled={acting}
+            onClick={() => run(chaos.dropAllConnections, 'Drop all connections')}>
+            <Unplug className="w-3.5 h-3.5" /> Drop all connections
+          </Button>
+          <Button variant="success" disabled={acting}
+            onClick={() => run(chaos.restoreAll, 'Restore all containers')}>
+            <RotateCcw className="w-3.5 h-3.5" /> Restore all
+          </Button>
         </div>
       </Card>
 
-      {/* ACTION LOG */}
+      {/* ----------------------------------------------------------- audit log */}
       <Card>
-        <h3 className="text-sm font-semibold text-white mb-2">📋 Action History</h3>
-        <p className="text-xs text-gray-500 mb-2">Track all chaos actions executed</p>
-
-        <div className="bg-black rounded p-3 max-h-48 overflow-y-auto space-y-1 border border-gray-800">
-          {actionLog.length === 0 ? (
-            <p className="text-xs text-gray-600">No actions yet. Start injecting failures!</p>
-          ) : (
-            actionLog.map((entry, i) => (
-              <div key={i} className="text-xs font-mono">
-                <span className="text-gray-500">[{entry.timestamp}]</span>
-                <span className="text-white ml-2">{entry.action}</span>
-                <span className={clsx('ml-2 font-semibold', entry.result.includes('Error') ? 'text-red-400' : 'text-green-400')}>
-                  {entry.result}
-                </span>
-                {entry.details && <span className="text-gray-600 ml-2">({entry.details})</span>}
-              </div>
-            ))
-          )}
-        </div>
+        <SectionTitle icon={History} title="Action history" description="This session only" />
+        {actionLog.length === 0 ? (
+          <EmptyState message="No chaos actions yet." />
+        ) : (
+          <ul className="space-y-1.5">
+            {actionLog.map((entry, index) => (
+              <li
+                key={`${entry.time}-${index}`}
+                className="flex items-start gap-2 text-xs border-b border-line/60 pb-1.5 last:border-0"
+              >
+                <Mono className="text-subtle shrink-0">{entry.time}</Mono>
+                <Badge status={entry.ok ? 'healthy' : 'error'} label={entry.action} />
+                <span className="text-muted min-w-0 break-words">{entry.detail}</span>
+              </li>
+            ))}
+          </ul>
+        )}
       </Card>
     </div>
   )
 }
-
-export default ChaosControlPanel

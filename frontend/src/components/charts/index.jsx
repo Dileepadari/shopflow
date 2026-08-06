@@ -1,93 +1,106 @@
-import { LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts'
+import {
+  Bar,
+  BarChart,
+  CartesianGrid,
+  Legend,
+  Line,
+  LineChart,
+  ResponsiveContainer,
+  Tooltip,
+  XAxis,
+  YAxis,
+} from 'recharts'
+
+import { EmptyState } from '../ui/index'
 
 /**
- * MessageRateChart - Time-series chart of publish/ack/nack rates.
+ * Charts read their colours from the brand tokens via CSS variables, so they
+ * follow the light/dark toggle instead of being hardcoded to one theme.
  */
-export function MessageRateChart({ data = [] }) {
-  if (data.length === 0) {
+const axis = 'var(--text-muted)'
+const grid = 'var(--border)'
+
+const tooltipStyle = {
+  backgroundColor: 'var(--surface)',
+  border: '1px solid var(--border)',
+  borderRadius: 'var(--radius)',
+  color: 'var(--text)',
+  fontSize: '12px',
+}
+
+function ChartFrame({ children, empty, emptyMessage }) {
+  if (empty) {
     return (
-      <div className="h-64 flex items-center justify-center bg-gray-800 rounded">
-        <p className="text-gray-500">No data yet</p>
+      <div className="h-[300px] flex items-center justify-center rounded-[var(--radius)] border border-line bg-surface-muted">
+        <EmptyState message={emptyMessage} />
       </div>
     )
   }
-
   return (
     <ResponsiveContainer width="100%" height={300}>
-      <LineChart data={data} margin={{ top: 5, right: 30, left: 0, bottom: 5 }}>
-        <CartesianGrid strokeDasharray="3 3" stroke="#374151" />
-        <XAxis dataKey="time" stroke="#9CA3AF" style={{ fontSize: '12px' }} />
-        <YAxis stroke="#9CA3AF" style={{ fontSize: '12px' }} />
-        <Tooltip contentStyle={{ backgroundColor: '#111827', border: '1px solid #374151' }} />
-        <Legend />
-        <Line type="monotone" dataKey="publish" stroke="#F97316" strokeWidth={2} dot={false} />
-        <Line type="monotone" dataKey="ack" stroke="#10B981" strokeWidth={2} dot={false} />
-        <Line type="monotone" dataKey="nack" stroke="#EF4444" strokeWidth={2} dot={false} />
-      </LineChart>
+      {children}
     </ResponsiveContainer>
   )
 }
 
-/**
- * QueueDepthChart - Bar chart showing queue depths.
- */
-export function QueueDepthChart({ data = [] }) {
-  if (data.length === 0) {
-    return (
-      <div className="h-64 flex items-center justify-center bg-gray-800 rounded">
-        <p className="text-gray-500">No queues</p>
-      </div>
-    )
-  }
-
+/** Broker throughput over the polling window. */
+export function MessageRateChart({ data = [] }) {
   return (
-    <ResponsiveContainer width="100%" height={300}>
-      <BarChart data={data} margin={{ top: 5, right: 30, left: 0, bottom: 50 }}>
-        <CartesianGrid strokeDasharray="3 3" stroke="#374151" />
+    <ChartFrame empty={data.length === 0} emptyMessage="Waiting for the first samples">
+      <LineChart data={data} margin={{ top: 5, right: 16, left: 0, bottom: 5 }}>
+        <CartesianGrid strokeDasharray="3 3" stroke={grid} />
+        <XAxis dataKey="time" stroke={axis} tick={{ fontSize: 11 }} minTickGap={24} />
+        <YAxis stroke={axis} tick={{ fontSize: 11 }} width={40} />
+        <Tooltip contentStyle={tooltipStyle} />
+        <Legend wrapperStyle={{ fontSize: 12 }} />
+        <Line
+          type="monotone"
+          dataKey="publish"
+          name="Published/s"
+          stroke="var(--brand)"
+          strokeWidth={2}
+          dot={false}
+        />
+        <Line
+          type="monotone"
+          dataKey="deliver"
+          name="Delivered/s"
+          stroke="var(--accent)"
+          strokeWidth={2}
+          dot={false}
+        />
+        <Line
+          type="monotone"
+          dataKey="ack"
+          name="Acked/s"
+          stroke="var(--success)"
+          strokeWidth={2}
+          dot={false}
+        />
+      </LineChart>
+    </ChartFrame>
+  )
+}
+
+/** Backlog per queue. */
+export function QueueDepthChart({ data = [] }) {
+  return (
+    <ChartFrame empty={data.length === 0} emptyMessage="No queues reporting">
+      <BarChart data={data} margin={{ top: 5, right: 16, left: 0, bottom: 60 }}>
+        <CartesianGrid strokeDasharray="3 3" stroke={grid} vertical={false} />
         <XAxis
           dataKey="name"
-          stroke="#9CA3AF"
-          style={{ fontSize: '11px' }}
+          stroke={axis}
+          tick={{ fontSize: 10 }}
           angle={-45}
           textAnchor="end"
-          height={100}
+          height={90}
+          interval={0}
         />
-        <YAxis stroke="#9CA3AF" style={{ fontSize: '12px' }} />
-        <Tooltip contentStyle={{ backgroundColor: '#111827', border: '1px solid #374151' }} />
-        <Bar dataKey="messages" fill="#F97316" />
+        <YAxis stroke={axis} tick={{ fontSize: 11 }} width={40} allowDecimals={false} />
+        <Tooltip contentStyle={tooltipStyle} cursor={{ fill: 'var(--border)', opacity: 0.3 }} />
+        <Bar dataKey="messages" name="Messages" fill="var(--brand)" radius={[3, 3, 0, 0]} />
       </BarChart>
-    </ResponsiveContainer>
-  )
-}
-
-/**
- * ExchangeVisualization - Simple exchange binding diagram.
- */
-export function ExchangeVisualization({ exchange = {} }) {
-  const { name, type, bindings = [] } = exchange
-
-  return (
-    <div className="space-y-4">
-      <div className="p-3 bg-blue-900 border border-blue-700 rounded">
-        <p className="text-xs font-semibold text-blue-200">Exchange: {name}</p>
-        <p className="text-xs text-blue-300 mt-1">Type: {type}</p>
-      </div>
-
-      {bindings.length > 0 ? (
-        <div className="space-y-2">
-          {bindings.map((binding, i) => (
-            <div key={i} className="flex items-center gap-2">
-              <div className="w-4 h-4 bg-orange-500 rounded" />
-              <span className="text-xs font-mono text-gray-300">{binding.destination}</span>
-              {binding.routing_key && (
-                <span className="text-xs text-gray-500">({binding.routing_key})</span>
-              )}
-            </div>
-          ))}
-        </div>
-      ) : (
-        <p className="text-xs text-gray-500">No bindings</p>
-      )}
-    </div>
+    </ChartFrame>
   )
 }

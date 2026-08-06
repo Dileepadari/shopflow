@@ -3,95 +3,134 @@ src.core.declarations
 ~~~~~~~~~~~~~~~~~~~~~~
 Single source of truth for all RabbitMQ topology.
 Called by cluster_init (one-shot) and by every consumer at startup (idempotent).
+
+Every queue in ``QUEUES`` is declared with a dead-letter routing key of
+``<dlx_prefix>.<queue_name>``, and the DLX bindings are derived from the very
+same list. That derivation is deliberate: the two used to be maintained by hand
+and drifted, which silently discarded dead letters for five of the queues.
 """
 import logging
-import pika
+from dataclasses import dataclass, field
+
 from src.core.config import settings
 
 logger = logging.getLogger(__name__)
 
+#: Exchange name -> AMQP exchange type. All are durable.
+EXCHANGES: dict[str, str] = {
+    "order.events": "fanout",           # FR-02 publish/subscribe
+    "logs.error": "direct",             # FR-03 targeted log routing
+    "logs.info": "direct",              # FR-03
+    "notifications.topic": "topic",     # FR-04 pattern routing
+    "orders.headers": "headers",        # FR-05 region routing
+}
+
+#: The dead letter queue itself. Declared separately: it has no TTL (records are
+#: kept until reviewed) and no dead-letter-exchange of its own (nowhere to go).
+DLX_QUEUE = "dead_letter_queue"
+
+
+@dataclass(frozen=True)
+class QueueSpec:
+    """One work queue and how it is bound to its exchange."""
+
+    name: str
+    #: None means the queue is fed through the default (nameless) exchange.
+    exchange: str | None = None
+    #: Routing keys / binding patterns. Empty string is a valid fanout key.
+    routing_keys: tuple[str, ...] = ()
+    #: Header-match arguments, headers exchanges only.
+    bind_arguments: dict[str, str] | None = None
+    #: Consumer container(s) that read this queue - documentation for the dev guide.
+    consumers: tuple[str, ...] = field(default_factory=tuple)
+
+
+QUEUES: tuple[QueueSpec, ...] = (
+    # FR-01 work queues, fed via the default exchange by routing key = queue name.
+    QueueSpec("payment_queue", consumers=("payment_consumer_1", "payment_consumer_2")),
+    QueueSpec("inventory_queue", consumers=("inventory_consumer_1", "inventory_consumer_2")),
+    # FR-02 fanout: all three receive every order event.
+    QueueSpec("email_queue", "order.events", ("",), consumers=("email_consumer",)),
+    QueueSpec("sms_queue", "order.events", ("",), consumers=("sms_consumer",)),
+    QueueSpec("push_queue", "order.events", ("",), consumers=("push_consumer",)),
+    # FR-03 direct log routing.
+    QueueSpec("log_error_queue", "logs.error", ("error", "warning"),
+              consumers=("log_error_consumer",)),
+    QueueSpec("log_info_queue", "logs.info", ("info", "debug"),
+              consumers=("log_info_consumer",)),
+    # FR-04 topic notification routing.
+    QueueSpec("notif_email_queue", "notifications.topic", ("notification.email.*",),
+              consumers=("notif_email_consumer",)),
+    QueueSpec("notif_sms_queue", "notifications.topic", ("notification.sms.urgent",),
+              consumers=("notif_sms_consumer",)),
+    QueueSpec("notif_audit_queue", "notifications.topic", ("#",),
+              consumers=("notif_audit_consumer",)),
+    # FR-05 headers-based region routing. Header keys must match the ones set by
+    # src/producers/order_producer.py when publishing to orders.headers.
+    QueueSpec("eu_queue", "orders.headers", ("",),
+              {"x-match": "all", "region": "EU", "format": "json"},
+              consumers=("eu_processor",)),
+    QueueSpec("us_queue", "orders.headers", ("",),
+              {"x-match": "all", "region": "US", "format": "json"},
+              consumers=("us_processor",)),
+    QueueSpec("xml_legacy_queue", "orders.headers", ("",),
+              {"x-match": "any", "format": "xml"},
+              consumers=("xml_legacy_consumer",)),
+)
+
+#: Fast lookup used by the chaos service and tests.
+QUEUES_BY_NAME: dict[str, QueueSpec] = {q.name: q for q in QUEUES}
+
+
+def dlx_routing_key(queue_name: str) -> str:
+    """The DLX routing key a message from ``queue_name`` is dead-lettered with."""
+    return f"{settings.dlx_routing_key_prefix}.{queue_name}"
+
+
 def _quorum_args(source_queue: str) -> dict:
+    """Queue arguments shared by every work queue (FR-06, FR-10)."""
     return {
         "x-queue-type": "quorum",
         "x-message-ttl": settings.message_ttl_ms,
         "x-dead-letter-exchange": settings.dlx_exchange,
-        "x-dead-letter-routing-key": f"{settings.dlx_routing_key_prefix}.{source_queue}",
+        "x-dead-letter-routing-key": dlx_routing_key(source_queue),
     }
+
 
 def declare_all(channel) -> None:
     """Declare all exchanges, queues, and bindings. Safe to call repeatedly."""
+    _declare_exchanges(channel)
     _declare_dlx(channel)
-    _declare_work_queues(channel)
-    _declare_fanout(channel)
-    _declare_direct(channel)
-    _declare_topic(channel)
-    _declare_headers(channel)
-    logger.info("All ShopFlow topology declared.")
+    _declare_queues(channel)
+    logger.info("All ShopFlow topology declared (%d exchanges, %d queues).",
+                len(EXCHANGES) + 1, len(QUEUES) + 1)
 
-def _declare_dlx(ch):
-    ch.exchange_declare(exchange=settings.dlx_exchange, exchange_type="direct", durable=True)
-    ch.queue_declare(queue="dead_letter_queue", durable=True,
-                     arguments={"x-queue-type": "quorum"})
-    for queue in [
-        "payment_queue",
-        "inventory_queue",
-        "email_queue",
-        "sms_queue",
-        "push_queue",
-        "log_error_queue",
-        "log_info_queue",
-        "order_us_queue",
-        "order_eu_queue",
-        "order_xml_queue",
-        "notif_audit_queue",
-    ]:
-        ch.queue_bind(
-            queue="dead_letter_queue",
-            exchange=settings.dlx_exchange,
-            routing_key=f"{settings.dlx_routing_key_prefix}.{queue}",
-        )
 
-def _declare_work_queues(ch):
-    for q in ["payment_queue", "inventory_queue"]:
-        ch.queue_declare(queue=q, durable=True, arguments=_quorum_args(q))
+def _declare_exchanges(channel) -> None:
+    for name, ex_type in EXCHANGES.items():
+        channel.exchange_declare(exchange=name, exchange_type=ex_type, durable=True)
 
-def _declare_fanout(ch):
-    ch.exchange_declare(exchange="order.events", exchange_type="fanout", durable=True)
-    for q in ["email_queue", "sms_queue", "push_queue"]:
-        ch.queue_declare(queue=q, durable=True, arguments=_quorum_args(q))
-        ch.queue_bind(queue=q, exchange="order.events", routing_key="")
 
-def _declare_direct(ch):
-    ch.exchange_declare(exchange="logs.error", exchange_type="direct", durable=True)
-    ch.queue_declare(queue="log_error_queue", durable=True,
-                     arguments=_quorum_args("log_error_queue"))
-    ch.queue_bind(queue="log_error_queue", exchange="logs.error", routing_key="error")
-    ch.queue_bind(queue="log_error_queue", exchange="logs.error", routing_key="warning")
+def _declare_dlx(channel) -> None:
+    """FR-08: the dead letter exchange, its queue, and one binding per source queue."""
+    channel.exchange_declare(exchange=settings.dlx_exchange,
+                             exchange_type="direct", durable=True)
+    # No TTL and no onward DLX - dead letters stay until reviewed.
+    channel.queue_declare(queue=DLX_QUEUE, durable=True,
+                          arguments={"x-queue-type": "quorum"})
+    for spec in QUEUES:
+        channel.queue_bind(queue=DLX_QUEUE,
+                           exchange=settings.dlx_exchange,
+                           routing_key=dlx_routing_key(spec.name))
 
-    ch.exchange_declare(exchange="logs.info", exchange_type="direct", durable=True)
-    ch.queue_declare(queue="log_info_queue", durable=True,
-                     arguments=_quorum_args("log_info_queue"))
-    ch.queue_bind(queue="log_info_queue", exchange="logs.info", routing_key="info")
-    ch.queue_bind(queue="log_info_queue", exchange="logs.info", routing_key="debug")
 
-def _declare_topic(ch):
-    ch.exchange_declare(exchange="notifications.topic", exchange_type="topic", durable=True)
-    bindings = {
-        "notif_email_queue": "notification.email.*",
-        "notif_sms_queue":   "notification.sms.urgent",
-        "notif_audit_queue": "#",
-    }
-    for q, pattern in bindings.items():
-        ch.queue_declare(queue=q, durable=True, arguments=_quorum_args(q))
-        ch.queue_bind(queue=q, exchange="notifications.topic", routing_key=pattern)
-
-def _declare_headers(ch):
-    ch.exchange_declare(exchange="orders.headers", exchange_type="headers", durable=True)
-    bindings = [
-        ("eu_queue",         {"x-match": "all", "region": "EU", "format": "json"}),
-        ("us_queue",         {"x-match": "all", "region": "US", "format": "json"}),
-        ("xml_legacy_queue", {"x-match": "any", "format": "xml"}),
-    ]
-    for q, args in bindings:
-        ch.queue_declare(queue=q, durable=True, arguments=_quorum_args(q))
-        ch.queue_bind(queue=q, exchange="orders.headers", routing_key="", arguments=args)
+def _declare_queues(channel) -> None:
+    for spec in QUEUES:
+        channel.queue_declare(queue=spec.name, durable=True,
+                              arguments=_quorum_args(spec.name))
+        if spec.exchange is None:
+            continue  # reached through the default exchange, no binding needed
+        for routing_key in spec.routing_keys:
+            channel.queue_bind(queue=spec.name, exchange=spec.exchange,
+                               routing_key=routing_key,
+                               arguments=spec.bind_arguments)

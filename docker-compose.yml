@@ -3,13 +3,14 @@
 #  Run everything:  docker compose up --build
 #
 #  Service startup order:
-#    rabbit1/2/3  →  haproxy  →  cluster_init  →  [all consumers]
+#    rabbit1/2/3  →  haproxy  →  cluster_init  →  [all 16 consumers]
 #                                               →  chaos_service
 #                                               →  producer_api
 #                                               →  frontend
+#
+#  NOTE: upgrading RabbitMQ requires starting from clean volumes.
+#        Run `docker compose down -v` first.
 # =============================================================================
-
-version: "3.9"
 
 networks:
   shopflow_net:
@@ -17,15 +18,24 @@ networks:
     ipam:
       config:
         - subnet: 172.20.0.0/24
+          # Dynamic addresses come only from the upper half. Docker's allocator
+          # otherwise starts at .2 and walks upward into the statically assigned
+          # range, and it does not reserve a static address that is not
+          # currently held - so a consumer starting before chaos_service takes
+          # 172.20.0.20 and chaos_service then fails with
+          # "Address already in use". The 16 consumers need no fixed address;
+          # everything reaches them by service name.
+          ip_range: 172.20.0.128/25
+          gateway: 172.20.0.1
 
 volumes:
   rabbit1_data:
   rabbit2_data:
   rabbit3_data:
-  shared_logs:     # Shared log volume: consumers + DLX consumer + chaos service read from it
+  shared_logs:     # Shared: consumers + DLX consumer write, chaos service reads
 
 x-rabbitmq-common: &rabbitmq-common
-  image: rabbitmq:3.13-management-alpine
+  image: rabbitmq:4.3-management-alpine
   networks:
     shopflow_net:
   environment:
@@ -33,20 +43,20 @@ x-rabbitmq-common: &rabbitmq-common
     RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASS:-shopflow123}
     RABBITMQ_DEFAULT_VHOST: ${RABBITMQ_VHOST:-shopflow}
     RABBITMQ_ERLANG_COOKIE: ${RABBITMQ_ERLANG_COOKIE:-SHOPFLOW_SECRET_COOKIE_2025}
-    RABBITMQ_CONFIG_FILE: /etc/rabbitmq/rabbitmq
   volumes:
     - ./infrastructure/rabbitmq/rabbitmq.conf:/etc/rabbitmq/rabbitmq.conf:ro
     - ./infrastructure/rabbitmq/enabled_plugins:/etc/rabbitmq/enabled_plugins:ro
-    - ./infrastructure/rabbitmq/definitions.json:/etc/rabbitmq/definitions.json:ro
   healthcheck:
-    test: ["CMD", "rabbitmq-diagnostics", "ping"]
+    # check_running verifies the node is actually serving, not just reachable.
+    test: ["CMD", "rabbitmq-diagnostics", "-q", "check_running"]
     interval: 10s
-    timeout: 5s
+    timeout: 10s
     retries: 15
-    start_period: 40s
+    start_period: 60s
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Common env block shared by all Python services that connect via HAProxy
+# Common env for every Python service. They reach AMQP through HAProxy, but the
+# management API directly on each node (HAProxy only fronts AMQP).
 # ─────────────────────────────────────────────────────────────────────────────
 x-python-env: &python-env
   RABBITMQ_HOST: haproxy
@@ -54,13 +64,18 @@ x-python-env: &python-env
   RABBITMQ_USER: ${RABBITMQ_USER:-admin}
   RABBITMQ_PASS: ${RABBITMQ_PASS:-shopflow123}
   RABBITMQ_VHOST: ${RABBITMQ_VHOST:-shopflow}
+  RABBIT1_MGMT: http://rabbit1:15672
+  RABBIT2_MGMT: http://rabbit2:15672
+  RABBIT3_MGMT: http://rabbit3:15672
   PREFETCH_COUNT: ${PREFETCH_COUNT:-1}
   MAX_RETRIES: ${MAX_RETRIES:-3}
   MESSAGE_TTL_MS: ${MESSAGE_TTL_MS:-60000}
+  LOG_LEVEL: ${LOG_LEVEL:-INFO}
+  LOG_DIR: /app/logs
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Common restart + depends_on block for ALL consumers
-# All consumers wait for cluster_init to complete successfully
+# Common block for ALL consumers. They start only once cluster_init has
+# declared the topology, so no consumer ever races its own queue into existence.
 # ─────────────────────────────────────────────────────────────────────────────
 x-consumer-common: &consumer-common
   build:
@@ -80,7 +95,15 @@ x-consumer-common: &consumer-common
 services:
 
   # ===========================================================================
-  # RabbitMQ Cluster - 3 nodes
+  # RabbitMQ Cluster - 3 nodes, quorum queues (FR-09, FR-10)
+  #
+  # All three start together on purpose. Under RabbitMQ 4.x a virgin node blocks
+  # in classic_config peer discovery until its configured peers resolve, so
+  # making rabbit2/rabbit3 wait for rabbit1 to be healthy deadlocks the cluster:
+  # rabbit1 never finishes booting because the peers it is waiting for are the
+  # ones waiting on it. (3.13 on Mnesia formed the cluster and moved on, which
+  # is why the old ordering worked.) Everything downstream still waits for all
+  # three to be healthy.
   # ===========================================================================
 
   rabbit1:
@@ -97,7 +120,6 @@ services:
       - rabbit1_data:/var/lib/rabbitmq
       - ./infrastructure/rabbitmq/rabbitmq.conf:/etc/rabbitmq/rabbitmq.conf:ro
       - ./infrastructure/rabbitmq/enabled_plugins:/etc/rabbitmq/enabled_plugins:ro
-      - ./infrastructure/rabbitmq/definitions.json:/etc/rabbitmq/definitions.json:ro
 
   rabbit2:
     <<: *rabbitmq-common
@@ -113,10 +135,6 @@ services:
       - rabbit2_data:/var/lib/rabbitmq
       - ./infrastructure/rabbitmq/rabbitmq.conf:/etc/rabbitmq/rabbitmq.conf:ro
       - ./infrastructure/rabbitmq/enabled_plugins:/etc/rabbitmq/enabled_plugins:ro
-      - ./infrastructure/rabbitmq/definitions.json:/etc/rabbitmq/definitions.json:ro
-    depends_on:
-      rabbit1:
-        condition: service_healthy
 
   rabbit3:
     <<: *rabbitmq-common
@@ -132,17 +150,13 @@ services:
       - rabbit3_data:/var/lib/rabbitmq
       - ./infrastructure/rabbitmq/rabbitmq.conf:/etc/rabbitmq/rabbitmq.conf:ro
       - ./infrastructure/rabbitmq/enabled_plugins:/etc/rabbitmq/enabled_plugins:ro
-      - ./infrastructure/rabbitmq/definitions.json:/etc/rabbitmq/definitions.json:ro
-    depends_on:
-      rabbit1:
-        condition: service_healthy
 
   # ===========================================================================
-  # HAProxy - unified AMQP entrypoint
+  # HAProxy - unified AMQP entrypoint on 5670
   # ===========================================================================
 
   haproxy:
-    image: haproxy:2.9-alpine
+    image: haproxy:3.4-alpine
     container_name: haproxy
     networks:
       shopflow_net:
@@ -160,15 +174,21 @@ services:
       rabbit3:
         condition: service_healthy
     healthcheck:
-      test: ["CMD", "haproxy", "-c", "-f", "/usr/local/etc/haproxy/haproxy.cfg"]
+      # Probes the live monitor-uri. The old check ran `haproxy -c`, which only
+      # validates config syntax and passes even with every backend down - and
+      # cluster_init gates the whole stack on this.
+      # 127.0.0.1, not localhost: `bind *:8404` is IPv4-only, and localhost
+      # resolves to ::1 inside the container.
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:8404/healthz"]
       interval: 10s
       timeout: 5s
       retries: 5
+      start_period: 10s
 
   # ===========================================================================
-  # cluster_init - ONE-SHOT service
-  # Declares all exchanges, queues, and bindings.
-  # Exits 0 on success → consumers and other services start.
+  # cluster_init - ONE-SHOT topology bootstrapper
+  # Declares every exchange, queue and binding, then exits 0 so the
+  # consumers (which depend on service_completed_successfully) may start.
   # ===========================================================================
 
   cluster_init:
@@ -181,33 +201,39 @@ services:
     environment:
       <<: *python-env
     command: python scripts/cluster_init.py
-    restart: "no"   # Must not restart - it's a one-shot init
+    restart: "no"   # Must not restart - it is a one-shot init
     depends_on:
       haproxy:
         condition: service_healthy
 
   # ===========================================================================
-  # CONSUMERS - FR-01: Work Queues
+  # CONSUMERS - FR-01: Work Queues (competing consumers, prefetch=1)
+  # `hostname` is set to the container name so the consumer tag carries it and
+  # the chaos service can tell payment_consumer_1 from payment_consumer_2.
   # ===========================================================================
 
   payment_consumer_1:
     <<: *consumer-common
     container_name: payment_consumer_1
+    hostname: payment_consumer_1
     command: python src/consumers/payment_consumer.py
 
   payment_consumer_2:
     <<: *consumer-common
     container_name: payment_consumer_2
+    hostname: payment_consumer_2
     command: python src/consumers/payment_consumer.py
 
   inventory_consumer_1:
     <<: *consumer-common
     container_name: inventory_consumer_1
+    hostname: inventory_consumer_1
     command: python src/consumers/inventory_consumer.py
 
   inventory_consumer_2:
     <<: *consumer-common
     container_name: inventory_consumer_2
+    hostname: inventory_consumer_2
     command: python src/consumers/inventory_consumer.py
 
   # ===========================================================================
@@ -217,30 +243,35 @@ services:
   email_consumer:
     <<: *consumer-common
     container_name: email_consumer
+    hostname: email_consumer
     command: python src/consumers/email_consumer.py
 
   sms_consumer:
     <<: *consumer-common
     container_name: sms_consumer
+    hostname: sms_consumer
     command: python src/consumers/sms_consumer.py
 
   push_consumer:
     <<: *consumer-common
     container_name: push_consumer
+    hostname: push_consumer
     command: python src/consumers/push_consumer.py
 
   # ===========================================================================
-  # CONSUMERS - FR-03: Direct (logs.direct)
+  # CONSUMERS - FR-03: Direct (logs.error / logs.info)
   # ===========================================================================
 
   log_error_consumer:
     <<: *consumer-common
     container_name: log_error_consumer
+    hostname: log_error_consumer
     command: python src/consumers/log_error_consumer.py
 
   log_info_consumer:
     <<: *consumer-common
     container_name: log_info_consumer
+    hostname: log_info_consumer
     command: python src/consumers/log_info_consumer.py
 
   # ===========================================================================
@@ -250,16 +281,19 @@ services:
   notif_email_consumer:
     <<: *consumer-common
     container_name: notif_email_consumer
+    hostname: notif_email_consumer
     command: python src/consumers/notif_email_consumer.py
 
   notif_sms_consumer:
     <<: *consumer-common
     container_name: notif_sms_consumer
+    hostname: notif_sms_consumer
     command: python src/consumers/notif_sms_consumer.py
 
   notif_audit_consumer:
     <<: *consumer-common
     container_name: notif_audit_consumer
+    hostname: notif_audit_consumer
     command: python src/consumers/notif_audit_consumer.py
 
   # ===========================================================================
@@ -269,16 +303,19 @@ services:
   eu_processor:
     <<: *consumer-common
     container_name: eu_processor
+    hostname: eu_processor
     command: python src/consumers/eu_processor.py
 
   us_processor:
     <<: *consumer-common
     container_name: us_processor
+    hostname: us_processor
     command: python src/consumers/us_processor.py
 
   xml_legacy_consumer:
     <<: *consumer-common
     container_name: xml_legacy_consumer
+    hostname: xml_legacy_consumer
     command: python src/consumers/xml_legacy_consumer.py
 
   # ===========================================================================
@@ -288,11 +325,11 @@ services:
   dead_letter_consumer:
     <<: *consumer-common
     container_name: dead_letter_consumer
+    hostname: dead_letter_consumer
     command: python src/consumers/dead_letter_consumer.py
 
   # ===========================================================================
-  # Producer API - REST endpoints to publish orders on demand
-  # Replaces running producers manually from the command line
+  # Producer API - REST endpoints to publish orders on demand (FR-11)
   # ===========================================================================
 
   producer_api:
@@ -307,22 +344,32 @@ services:
       - "${PRODUCER_API_PORT:-8090}:8090"
     environment:
       <<: *python-env
-    command: uvicorn producer_api.main:app --host 0.0.0.0 --port 8090 --reload
+      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:3000}
+    # No --reload: the source is COPYd into the image, not bind-mounted, so the
+    # reloader only watched files that never change while doubling memory.
+    command: uvicorn producer_api.main:app --host 0.0.0.0 --port 8090
     volumes:
       - shared_logs:/app/logs
     restart: on-failure
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8090/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
     depends_on:
       cluster_init:
         condition: service_completed_successfully
 
   # ===========================================================================
-  # Chaos Control Panel
+  # Chaos Control Panel (FR - section 9)
+  # Builds from the repo root so it can import the shared src/ package.
   # ===========================================================================
 
   chaos_service:
     build:
-      context: ./chaos_service
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: chaos_service/Dockerfile
     container_name: chaos_service
     networks:
       shopflow_net:
@@ -330,26 +377,30 @@ services:
     ports:
       - "${CHAOS_SERVICE_PORT:-8080}:8080"
     environment:
+      <<: *python-env
       DOCKER_HOST: unix:///var/run/docker.sock
-      RABBITMQ_HOST: haproxy
-      RABBITMQ_PORT: 5670
-      RABBITMQ_USER: ${RABBITMQ_USER:-admin}
-      RABBITMQ_PASS: ${RABBITMQ_PASS:-shopflow123}
-      RABBITMQ_VHOST: ${RABBITMQ_VHOST:-shopflow}
-      RABBIT1_MGMT: http://172.20.0.11:15672
-      RABBIT2_MGMT: http://172.20.0.12:15672
-      RABBIT3_MGMT: http://172.20.0.13:15672
-      PRODUCER_API_URL: http://172.20.0.40:8090
+      PRODUCER_API_URL: http://producer_api:8090
+      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:3000}
     volumes:
+      # Required to start/stop/pause/kill containers. Every name it accepts is
+      # checked against the allow-list in chaos_service/containers.py.
       - /var/run/docker.sock:/var/run/docker.sock
       - shared_logs:/app/logs
     restart: on-failure
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8080/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
     depends_on:
       cluster_init:
         condition: service_completed_successfully
 
   # ===========================================================================
-  # React Frontend Dashboard
+  # React Dashboard (FR-13)
+  # nginx serves the built SPA and reverse-proxies /api/* to the services, so
+  # the browser only ever talks to this one origin. No VITE_* build args needed.
   # ===========================================================================
 
   frontend:
@@ -357,18 +408,26 @@ services:
       context: ./frontend
       dockerfile: Dockerfile
     container_name: shopflow_frontend
+    hostname: shopflow_frontend
     networks:
       shopflow_net:
         ipv4_address: 172.20.0.30
     ports:
       - "${FRONTEND_PORT:-3000}:80"
     environment:
-      VITE_RABBITMQ_MGMT_URL: http://localhost:15672
-      VITE_RABBITMQ_USER: ${RABBITMQ_USER:-admin}
-      VITE_RABBITMQ_PASS: ${RABBITMQ_PASS:-shopflow123}
-      VITE_RABBITMQ_VHOST: ${RABBITMQ_VHOST:-shopflow}
-      VITE_CHAOS_API_URL: http://localhost:8080
-      VITE_PRODUCER_API_URL: http://localhost:8090
+      RABBITMQ_USER: ${RABBITMQ_USER:-admin}
+      RABBITMQ_PASS: ${RABBITMQ_PASS:-shopflow123}
+    restart: on-failure
+    healthcheck:
+      # 127.0.0.1, not localhost: nginx `listen 80` is IPv4-only and localhost
+      # resolves to ::1 inside the container.
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:80/"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
     depends_on:
-      - chaos_service
-      - producer_api
+      chaos_service:
+        condition: service_started
+      producer_api:
+        condition: service_started

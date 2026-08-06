@@ -1,40 +1,48 @@
 #!/usr/bin/env bash
-# Production teardown script - complete system reset with safety checks
-set -e
+# Complete reset: removes ShopFlow's containers, volumes and log files.
+#
+# Also the correct first step when upgrading RabbitMQ - a 4.x node will not
+# boot on data written by 3.13.
+set -uo pipefail
 
 RESET='\033[0m'
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 
-echo -e "${YELLOW}=== ShopFlow Teardown ===${RESET}"
-echo -e "${YELLOW}This will PERMANENTLY delete all containers, volumes, and logs.${RESET}"
-echo -e "${RED}WARNING: Data loss - cannot recover after this step.${RESET}"
-read -p "Are you sure? (type 'YES' to proceed): " confirm
+cd "$(dirname "$0")/.." || exit 1
 
-if [ "$confirm" != "YES" ]; then
-    echo "Teardown cancelled."
-    exit 0
+printf "${YELLOW}=== ShopFlow teardown ===${RESET}\n"
+printf "This removes every ShopFlow container, its named volumes (including all\n"
+printf "queued messages and cluster state) and the contents of logs/.\n"
+printf "${RED}This cannot be undone.${RESET}\n\n"
+
+if [ "${1:-}" != "--yes" ]; then
+    read -r -p "Type YES to proceed: " confirm
+    if [ "$confirm" != "YES" ]; then
+        echo "Cancelled."
+        exit 0
+    fi
 fi
 
-echo -e "${YELLOW}Stopping all containers...${RESET}"
-docker compose down -v --remove-orphans 2>/dev/null || true
+printf "\n${YELLOW}Stopping containers and removing volumes...${RESET}\n"
+# `down -v` already removes this project's named volumes. A global
+# `docker volume prune` would also delete unrelated projects' volumes.
+docker compose down -v --remove-orphans
 
-echo -e "${YELLOW}Removing logs and data files...${RESET}"
-rm -rf logs/*.log logs/*.jsonl logs/*.txt 2>/dev/null || true
+printf "${YELLOW}Clearing local logs...${RESET}\n"
+find logs -type f ! -name '.gitkeep' -delete 2>/dev/null || true
 mkdir -p logs && touch logs/.gitkeep
 
-echo -e "${YELLOW}Pruning Docker resources...${RESET}"
-docker volume prune -f --filter label!=keep 2>/dev/null || true
+printf "${YELLOW}Verifying...${RESET}\n"
+project=$(basename "$PWD")
+remaining=$(docker ps -a --filter "label=com.docker.compose.project=$project" -q 2>/dev/null | wc -l)
 
-echo -e "${YELLOW}Verifying cleanup...${RESET}"
-REMAINING=$(docker ps -a --filter "label=com.docker.compose.project=shopflow" -q 2>/dev/null | wc -l)
-
-if [ "$REMAINING" -eq 0 ]; then
-    echo -e "${GREEN}✓ All ShopFlow containers removed${RESET}"
+if [ "$remaining" -eq 0 ]; then
+    printf "${GREEN}  All ShopFlow containers removed.${RESET}\n"
 else
-    echo -e "${RED}✗ Warning: $REMAINING containers still running${RESET}"
+    printf "${RED}  %s container(s) still present.${RESET}\n" "$remaining"
 fi
 
-echo -e "${GREEN}=== Teardown Complete ===${RESET}"
-echo "To restart: docker compose up --build"
+printf "\n${GREEN}=== Teardown complete ===${RESET}\n"
+printf "To start again: docker compose up --build -d\n"

@@ -1,113 +1,128 @@
-"""FR-08: Dead Letter Exchange consumer - retries dead-lettered messages and audits final failures."""
+"""
+FR-08: Dead Letter Exchange consumer.
+
+Owns the retry budget for the whole system. Every other consumer NACKs failures
+with requeue=False, which routes the message here and increments its x-death
+count. This consumer decides whether to give the message another attempt or to
+archive it for forensic review.
+"""
 import json
-from datetime import datetime, timezone
-from pathlib import Path
+from datetime import UTC, datetime
+
 import pika
+
+from src.consumers._base_consumer import BaseConsumer
 from src.core.config import settings
-from src.core.connection import get_connection, get_channel
-from src.core.declarations import declare_all
-from src.core.message_builder import decode, build_properties
-from src.utils.logger import setup_logging
+from src.core.message_builder import decode
+from src.utils.jsonl import append_record, log_path
+from src.utils.retry import (
+    get_death_reason,
+    get_original_queue,
+    get_retry_count,
+    next_retry_headers,
+    should_retry,
+)
 
-logger = setup_logging(__name__)
-DLX_LOG = Path("/app/logs/dead_letters.jsonl")
-DLX_LOG.parent.mkdir(parents=True, exist_ok=True)
+DLX_LOG_FILENAME = "dead_letters.jsonl"
 
-def on_dead_letter(channel, method, properties, body):
-    try:
-        payload = decode(body)
-    except Exception:
-        payload = {"raw": body.decode("utf-8", errors="replace")}
+#: Queues that carry the log stream itself. A dead letter originating from one of
+#: these must not produce an error notice, because that notice is published to
+#: logs.error and lands straight back in log_error_queue. Once that queue is deep
+#: enough for messages to hit their TTL, every expiry generates a replacement and
+#: the queue feeds itself without limit.
+LOG_QUEUES = frozenset({"log_error_queue", "log_info_queue"})
 
-    headers = properties.headers or {}
-    x_death = headers.get("x-death", [])
-    death_reason = x_death[0].get("reason", "unknown") if x_death else "unknown"
-    original_queue = x_death[0].get("queue", "unknown") if x_death else "unknown"
-    retry_count = sum(d.get("count", 0) for d in x_death) if x_death else 0
 
-    if original_queue != "unknown" and retry_count < settings.max_retries:
-        self_retry = retry_count + 1
-        logger.warning("[DLX] Retry %d/%d for queue '%s' - republishing.",
-                       self_retry, settings.max_retries, original_queue)
-        republish_props = pika.BasicProperties(
-            headers=headers,
-            content_type=getattr(properties, "content_type", None),
-            delivery_mode=getattr(properties, "delivery_mode", None),
-            priority=getattr(properties, "priority", None),
-            correlation_id=getattr(properties, "correlation_id", None),
-            reply_to=getattr(properties, "reply_to", None),
-            expiration=getattr(properties, "expiration", None),
-            message_id=getattr(properties, "message_id", None),
-            timestamp=getattr(properties, "timestamp", None),
-            user_id=getattr(properties, "user_id", None),
-            app_id=getattr(properties, "app_id", None),
-            cluster_id=getattr(properties, "cluster_id", None),
-        )
-        channel.basic_publish(
-            exchange="",
-            routing_key=original_queue,
-            body=body,
-            properties=republish_props,
-        )
-        channel.basic_ack(delivery_tag=method.delivery_tag)
-        return
+class DeadLetterConsumer(BaseConsumer):
+    queue_name   = "dead_letter_queue"
+    consumer_tag = "dead_letter_consumer"
+    # Nothing to simulate - this is bookkeeping, not business work.
+    min_delay, max_delay = 0.0, 0.0
 
-    record = {
-        "received_at": datetime.now(timezone.utc).isoformat(),
-        "original_queue": original_queue,
-        "routing_key": method.routing_key,
-        "death_reason": death_reason,
-        "retry_count": retry_count,
-        "message_body": payload,
-    }
-    DLX_LOG.open("a").write(json.dumps(record) + "\n")
-    logger.warning("[DLX] From '%s' | reason: %s | retries: %d | order: %s",
-                   original_queue, death_reason, retry_count,
-                   payload.get("order_id", "N/A"))
-    info_log = json.dumps({
-        "order_id": payload.get("order_id", "N/A"),
-        "original_queue": original_queue,
-        "level": "info",
-        "service": "dead_letter_consumer",
-        "message": f"Message dead-lettered from {original_queue}",
-        "retry_count": retry_count,
-    }).encode()
-    try:
-        channel.basic_publish(exchange="logs.info", routing_key="info",
-                            body=info_log, properties=build_properties())
-    except Exception:
-        pass
-    error_log = json.dumps({
-        "order_id": payload.get("order_id", "N/A"),
-        "original_queue": original_queue,
-        "level": "error",
-        "service": "dead_letter_consumer",
-        "message": f"Message dead-lettered from {original_queue}: {death_reason}",
-        "retry_count": retry_count,
-    }).encode()
-    try:
-        channel.basic_publish(exchange="logs.error", routing_key="error",
-                            body=error_log, properties=build_properties())
-    except Exception:
-        pass
-    channel.basic_ack(delivery_tag=method.delivery_tag)
-
-def run():
-    import time
-    while True:
+    def _on_message(self, channel, method, properties, body):
+        """Overridden because dead letters need the raw headers and must never
+        themselves be dead-lettered - there is nowhere further for them to go."""
         try:
-            conn = get_connection()
-            ch   = get_channel(conn)
-            declare_all(ch)
-            ch.basic_consume(queue="dead_letter_queue",
-                             on_message_callback=on_dead_letter, auto_ack=False)
-            logger.info("[DLX] Waiting for dead-lettered messages.")
-            ch.start_consuming()
-        except pika.exceptions.AMQPConnectionError:
-            logger.warning("[DLX] Lost connection - retry in 5s.")
-            time.sleep(5)
-        except KeyboardInterrupt:
-            break
+            payload = decode(body)
+        except Exception:
+            payload = {"raw": body.decode("utf-8", errors="replace")}
+
+        headers = (properties.headers if properties else None) or {}
+        original_queue = get_original_queue(headers)
+        reason = get_death_reason(headers)
+        attempts = get_retry_count(headers)
+
+        if should_retry(headers):
+            self._republish(channel, method, properties, body,
+                            original_queue, attempts, headers)
+            return
+
+        self._archive(channel, method, payload, original_queue, reason, attempts)
+
+    def _republish(self, channel, method, properties, body, original_queue: str,
+                   attempts: int, headers: dict) -> None:
+        self.logger.warning("[DLX] Retry %d/%d for queue '%s' - republishing.",
+                            attempts + 1, settings.max_retries, original_queue)
+        republish_props = pika.BasicProperties(
+            # Carries our own incremented attempt counter. Without it the
+            # message returns with a fresh x-death and retries forever.
+            headers=next_retry_headers(headers),
+            content_type=properties.content_type,
+            content_encoding=properties.content_encoding,
+            delivery_mode=properties.delivery_mode,
+            priority=properties.priority,
+            correlation_id=properties.correlation_id,
+            reply_to=properties.reply_to,
+            expiration=properties.expiration,
+            message_id=properties.message_id,
+            timestamp=properties.timestamp,
+            type=properties.type,
+            user_id=properties.user_id,
+            app_id=properties.app_id,
+        )
+        try:
+            channel.basic_publish(exchange="", routing_key=original_queue,
+                                  body=body, properties=republish_props)
+        except Exception as exc:
+            # Could not hand it back; archive instead of losing it.
+            self.logger.error("[DLX] Republish to '%s' failed: %s", original_queue, exc)
+            self._archive(channel, method, {"raw": body.decode("utf-8", errors="replace")},
+                          original_queue, f"republish_failed: {exc}", attempts)
+            return
+        channel.basic_ack(delivery_tag=method.delivery_tag)
+
+    def _archive(self, channel, method, payload: dict, original_queue: str,
+                 reason: str, attempts: int) -> None:
+        record = {
+            "received_at": datetime.now(UTC).isoformat(),
+            "original_queue": original_queue,
+            "routing_key": method.routing_key,
+            "death_reason": reason,
+            "retry_count": attempts,
+            "message_body": payload,
+        }
+        try:
+            append_record(log_path(DLX_LOG_FILENAME), record)
+        except OSError as exc:
+            # Never let a disk problem strand the message unacked.
+            self.logger.error("[DLX] Could not write audit record: %s", exc)
+
+        self.logger.warning("[DLX] From '%s' | reason: %s | retries: %d | order: %s",
+                            original_queue, reason, attempts,
+                            payload.get("order_id", "N/A"))
+
+        if original_queue not in LOG_QUEUES:
+            self._safe_publish(channel, "logs.error", "error", json.dumps({
+                "order_id": payload.get("order_id", "N/A"),
+                "original_queue": original_queue,
+                "level": "error",
+                "service": "dead_letter_consumer",
+                "message": f"Message dead-lettered from {original_queue}: {reason}",
+                "retry_count": attempts,
+            }).encode())
+
+        channel.basic_ack(delivery_tag=method.delivery_tag)
+
 
 if __name__ == "__main__":
-    run()
+    DeadLetterConsumer().run()

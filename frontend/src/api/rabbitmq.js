@@ -1,27 +1,19 @@
 /**
- * RabbitMQ Management API Client
- * ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
- * Calls the producer_api proxy endpoints to avoid CORS issues.
- * The proxy forwards to RabbitMQ Management API on port 15672.
+ * RabbitMQ Management API client.
+ *
+ * Calls the Producer API's /mgmt proxy, which holds the broker credentials and
+ * fails over between the three nodes. Reached same-origin through nginx (or the
+ * Vite dev proxy), so no host or port is baked into the bundle.
  */
-const PROXY = import.meta.env.VITE_PRODUCER_API_URL || 'http://localhost:8090'
-const VHOST = import.meta.env.VITE_RABBITMQ_VHOST || 'shopflow'
+import { apiGet } from './client'
 
-const get = (path) =>
-  fetch(`${PROXY}/mgmt${path}`)
-    .then((r) => {
-      if (!r.ok) throw new Error(`HTTP ${r.status}`)
-      return r.json()
-    })
-    .catch((e) => {
-      console.error('RabbitMQ API error:', e)
-      return null
-    })
+const VHOST = 'shopflow'
+const vhost = encodeURIComponent(VHOST)
 
-export const fetchNodes = () => get('/nodes')
-export const fetchOverview = () => get('/overview')
-export const fetchQueues = () => get(`/queues/${encodeURIComponent(VHOST)}`)
-export const fetchExchanges = () => get(`/exchanges/${encodeURIComponent(VHOST)}`)
-export const fetchConsumers = () => get(`/consumers/${encodeURIComponent(VHOST)}`)
-export const fetchConnections = () => get('/connections')
-export const fetchBindings = () => get(`/bindings/${encodeURIComponent(VHOST)}`)
+export const fetchNodes = () => apiGet('/api/mgmt/nodes')
+export const fetchOverview = () => apiGet('/api/mgmt/overview')
+export const fetchQueues = () => apiGet(`/api/mgmt/queues/${vhost}`)
+export const fetchExchanges = () => apiGet(`/api/mgmt/exchanges/${vhost}`)
+export const fetchConsumers = () => apiGet(`/api/mgmt/consumers/${vhost}`)
+export const fetchConnections = () => apiGet('/api/mgmt/connections')
+export const fetchBindings = () => apiGet(`/api/mgmt/bindings/${vhost}`)

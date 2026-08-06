@@ -1,86 +1,89 @@
 #!/usr/bin/env bash
-# Health check script - verify all services are operational
-set -e
+# Quick "is everything up?" check. Prints a per-service report and exits
+# non-zero if anything is unhealthy.
+set -uo pipefail
 
 RESET='\033[0m'
 GREEN='\033[0;32m'
 RED='\033[0;31m'
 YELLOW='\033[1;33m'
 
-echo -e "${YELLOW}=== ShopFlow Health Check ===${RESET}\n"
+RABBIT_USER="${RABBITMQ_USER:-admin}"
+RABBIT_PASS="${RABBITMQ_PASS:-shopflow123}"
+VHOST="${RABBITMQ_VHOST:-shopflow}"
+MGMT="http://localhost:${RABBIT1_MGMT_PORT:-15672}/api"
 
-check_service() {
-    local name=$1
-    local url=$2
-    local expected_code=$3
-    
-    if [ -z "$expected_code" ]; then
-        expected_code=200
-    fi
-    
-    local response=$(curl -s -o /dev/null -w "%{http_code}" "$url" 2>/dev/null || echo "000")
-    
-    if [ "$response" = "$expected_code" ]; then
-        echo -e "${GREEN}✓${RESET} $name ($url) - $response"
-        return 0
+problems=0
+
+ok()   { printf "${GREEN}  ok${RESET}    %s\n" "$1"; }
+bad()  { printf "${RED}  FAIL${RESET}  %s\n" "$1"; problems=$((problems + 1)); }
+
+ALL_SERVICES=(
+    rabbit1 rabbit2 rabbit3 haproxy producer_api chaos_service frontend
+    payment_consumer_1 payment_consumer_2
+    inventory_consumer_1 inventory_consumer_2
+    email_consumer sms_consumer push_consumer
+    log_error_consumer log_info_consumer
+    notif_email_consumer notif_sms_consumer notif_audit_consumer
+    eu_processor us_processor xml_legacy_consumer dead_letter_consumer
+)
+
+printf "${YELLOW}=== ShopFlow health check ===${RESET}\n\nContainers:\n"
+for service in "${ALL_SERVICES[@]}"; do
+    state=$(docker compose ps --format '{{.State}}' "$service" 2>/dev/null | head -1)
+    case "$state" in
+        running) ok "$service" ;;
+        "")      bad "$service (not found)" ;;
+        *)       bad "$service ($state)" ;;
+    esac
+done
+
+printf "\nHTTP endpoints:\n"
+check_http() {
+    local name=$1 url=$2 expected=${3:-200}
+    local code
+    code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 5 "$url" 2>/dev/null || echo 000)
+    if [ "$code" = "$expected" ]; then
+        ok "$name ($code)"
     else
-        echo -e "${RED}✗${RESET} $name ($url) - Expected $expected_code, got $response"
-        return 1
+        bad "$name — expected $expected, got $code — $url"
     fi
 }
 
-check_docker() {
-    local service=$1
-    if docker compose ps "$service" 2>/dev/null | grep -q "Up"; then
-        echo -e "${GREEN}✓${RESET} $service - Running"
-        return 0
-    else
-        echo -e "${RED}✗${RESET} $service - Not running or unhealthy"
-        return 1
-    fi
-}
+check_http "Producer API"          "http://localhost:${PRODUCER_API_PORT:-8090}/health"
+check_http "Chaos Service"         "http://localhost:${CHAOS_SERVICE_PORT:-8080}/health"
+check_http "Dashboard"             "http://localhost:${FRONTEND_PORT:-3000}"
+check_http "Dashboard API proxy"   "http://localhost:${FRONTEND_PORT:-3000}/api/mgmt/overview"
+check_http "HAProxy liveness"      "http://localhost:${HAPROXY_STATS_PORT:-8404}/healthz"
+# Unauthenticated management API must reject, which proves auth is on.
+check_http "RabbitMQ management"   "$MGMT/overview" 401
 
-# Check Docker services
-echo "🐳 Docker Services:"
-check_docker "rabbit1"
-check_docker "rabbit2"
-check_docker "rabbit3"
-check_docker "haproxy"
-check_docker "producer_api"
-check_docker "chaos_service"
-check_docker "frontend"
-check_docker "payment_consumer_1"
-check_docker "inventory_consumer_1"
-check_docker "email_consumer"
-check_docker "sms_consumer"
-check_docker "push_consumer"
+printf "\nCluster:\n"
+nodes=$(curl -s -u "$RABBIT_USER:$RABBIT_PASS" --max-time 5 "$MGMT/nodes" \
+    | python3 -c "import sys,json; print(sum(1 for n in json.load(sys.stdin) if n['running']))" 2>/dev/null || echo 0)
+[ "$nodes" = "3" ] && ok "3 of 3 nodes running" || bad "$nodes of 3 nodes running"
 
-# Check HTTP endpoints
-echo -e "\n🌐 HTTP Endpoints:"
-check_service "Producer API" "http://localhost:8090/health" 200
-check_service "Chaos Service" "http://localhost:8080/health" 200
-check_service "Frontend" "http://localhost:3000" 200
-check_service "RabbitMQ Mgmt" "http://localhost:15672/api/overview" 401
+queues=$(curl -s -u "$RABBIT_USER:$RABBIT_PASS" --max-time 5 "$MGMT/queues/$VHOST" \
+    | python3 -c "import sys,json; print(len(json.load(sys.stdin)))" 2>/dev/null || echo 0)
+[ "$queues" = "14" ] && ok "14 queues declared" || bad "$queues queues declared (expected 14)"
 
-# Check RabbitMQ API (with credentials)
-echo -e "\n🐰 RabbitMQ Status:"
-NODES=$(curl -s -u admin:shopflow123 http://localhost:15672/api/nodes | python3 -c "import sys, json; print(len(json.load(sys.stdin)))" 2>/dev/null || echo "0")
-if [ "$NODES" = "3" ]; then
-    echo -e "${GREEN}✓${RESET} 3-node cluster healthy"
-else
-    echo -e "${RED}✗${RESET} Cluster has $NODES nodes (expected 3)"
+consumers=$(curl -s -u "$RABBIT_USER:$RABBIT_PASS" --max-time 5 "$MGMT/consumers/$VHOST" \
+    | python3 -c "import sys,json; print(len(json.load(sys.stdin)))" 2>/dev/null || echo 0)
+[ "$consumers" -ge 16 ] 2>/dev/null && ok "$consumers consumers subscribed" \
+    || bad "$consumers consumers subscribed (expected at least 16)"
+
+# The stats page is behind basic auth; the CSV export is easiest to parse.
+backends=$(curl -s --max-time 5 -u "$RABBIT_USER:$RABBIT_PASS" \
+    "http://localhost:${HAPROXY_STATS_PORT:-8404}/stats;csv" \
+    | awk -F, '$1=="amqp_cluster" && $2 ~ /^rabbit[123]$/ && $18=="UP"' | wc -l)
+[ "$backends" = "3" ] && ok "3 of 3 HAProxy backends UP" \
+    || bad "$backends of 3 HAProxy backends UP"
+
+printf "\n"
+if [ "$problems" -eq 0 ]; then
+    printf "${GREEN}=== Everything healthy ===${RESET}\n"
+    exit 0
 fi
-
-QUEUES=$(curl -s -u admin:shopflow123 "http://localhost:15672/api/queues/shopflow" | python3 -c "import sys, json; print(len(json.load(sys.stdin)))" 2>/dev/null || echo "0")
-echo -e "${GREEN}✓${RESET} $QUEUES queues declared"
-
-# Check HAProxy
-echo -e "\n⚖️  HAProxy:"
-BACKENDS=$(curl -s http://localhost:8404/stats | grep -c "rabbit" || echo "0")
-if [ "$BACKENDS" -gt 0 ]; then
-    echo -e "${GREEN}✓${RESET} $BACKENDS RabbitMQ nodes in load balancer"
-else
-    echo -e "${RED}✗${RESET} HAProxy backend nodes not found"
-fi
-
-echo -e "\n${GREEN}=== Health Check Complete ===${RESET}"
+printf "${RED}=== %d problem(s) found ===${RESET}\n" "$problems"
+printf "Try: docker compose logs --tail=50\n"
+exit 1

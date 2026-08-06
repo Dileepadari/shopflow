@@ -1,224 +1,176 @@
 """
-Unit tests for base consumer functionality.
-Tests consumer initialization and message processing patterns.
+Tests for BaseConsumer's acknowledgement contract.
+
+These exercise the real _on_message path rather than asserting on attributes the
+test itself just assigned, which is what the previous version of this file did.
 """
+import json
+import signal
+from unittest.mock import MagicMock
 
 import pytest
-import json
-from unittest.mock import Mock, MagicMock, patch
+
 from src.consumers._base_consumer import BaseConsumer
+from src.core.message_builder import encode
+
+VALID_BODY = encode({"order_id": "ORD-1", "amount": 10.0, "currency": "USD"})
+POISON_BODY = b"__POISON__INVALID_JSON__"
 
 
-class TestBaseConsumerInitialization:
-    """Tests for consumer initialization"""
-    
-    def test_consumer_initialization(self):
-        """Test basic consumer initialization"""
-        consumer = BaseConsumer()
-        consumer.queue_name = "test_queue"
-        consumer.exchange_name = "test_exchange"
-        consumer.exchange_type = "fanout"
-        consumer.routing_key = ""
+class RecordingConsumer(BaseConsumer):
+    """Succeeds by default; set `boom` to make processing raise."""
 
-        assert consumer.queue_name == "test_queue"
-        assert consumer.exchange_name == "test_exchange"
-        assert consumer.exchange_type == "fanout"
-        assert consumer.routing_key == ""
-    
-    def test_consumer_with_direct_exchange(self):
-        """Test consumer with direct exchange"""
-        consumer = BaseConsumer()
-        consumer.queue_name = "logs_queue"
-        consumer.exchange_name = "logs.direct"
-        consumer.exchange_type = "direct"
-        consumer.routing_key = "error"
+    queue_name = "test_queue"
+    consumer_tag = "test_consumer"
+    min_delay = max_delay = 0.0
 
-        assert consumer.exchange_type == "direct"
-        assert consumer.routing_key == "error"
-    
-    def test_consumer_with_topic_exchange(self):
-        """Test consumer with topic exchange"""
-        consumer = BaseConsumer()
-        consumer.queue_name = "notif_queue"
-        consumer.exchange_name = "notifications.topic"
-        consumer.exchange_type = "topic"
-        consumer.routing_key = "notif.#"
+    def __init__(self, boom=None):
+        super().__init__()
+        self.boom = boom
+        self.processed = []
 
-        assert consumer.exchange_type == "topic"
-        assert consumer.routing_key == "notif.#"
+    def process_message(self, payload):
+        if self.boom:
+            raise self.boom
+        self.processed.append(payload)
 
 
-class TestConsumerMessageProcessing:
-    """Tests for message processing"""
-    
-    @patch('pika.BlockingConnection')
-    def test_consumer_success_acks_message(self, mock_conn):
-        """Test that successful processing ACKs message"""
-        # Setup mock
-        mock_channel = MagicMock()
-        mock_conn.return_value.channel.return_value = mock_channel
-        
-        class TestConsumer(BaseConsumer):
-            def process_message(self, message_body):
-                # successful processing does not raise
-                return None
-
-        consumer = TestConsumer()
-        consumer.queue_name = "test"
-        consumer.exchange_name = "test"
-        consumer.exchange_type = "fanout"
-        consumer.consumer_tag = "test_consumer"
-        
-        # Simulate message delivery
-        method = Mock(delivery_tag=1)
-        properties = Mock()
-        body = json.dumps({"test": "data"}).encode()
-        
-        # Process
-        consumer._on_message(mock_channel, method, properties, body)
-        
-        # Verify ACK
-        mock_channel.basic_ack.assert_called_once_with(delivery_tag=1)
-    
-    @patch('pika.BlockingConnection')
-    def test_consumer_error_nacks_message(self, mock_conn):
-        """Test that error processing NACKs message with requeue"""
-        mock_channel = MagicMock()
-        mock_conn.return_value.channel.return_value = mock_channel
-        
-        class TestConsumer(BaseConsumer):
-            def process_message(self, message_body):
-                # simulate processing error
-                raise Exception("processing failed")
-
-        consumer = TestConsumer()
-        consumer.queue_name = "test"
-        consumer.exchange_name = "test"
-        consumer.exchange_type = "fanout"
-        consumer.consumer_tag = "test_consumer"
-        
-        method = Mock(delivery_tag=1)
-        properties = Mock()
-        body = json.dumps({"test": "data"}).encode()
-        
-        consumer._on_message(mock_channel, method, properties, body)
-        
-        # Verify NACK (exception path uses requeue=False)
-        mock_channel.basic_nack.assert_called_once()
-        call_args = mock_channel.basic_nack.call_args
-        assert call_args[1].get('requeue') is False
+@pytest.fixture
+def method():
+    m = MagicMock()
+    m.delivery_tag = 42
+    m.routing_key = "test"
+    return m
 
 
-class TestConsumerErrorHandling:
-    """Tests for error handling"""
-    
-    @patch('pika.BlockingConnection')
-    def test_consumer_handles_invalid_json(self, mock_conn):
-        """Test handling of invalid JSON messages"""
-        mock_channel = MagicMock()
-        mock_conn.return_value.channel.return_value = mock_channel
-        
-        consumer = BaseConsumer()
-        consumer.queue_name = "test"
-        consumer.exchange_name = "test"
-        consumer.exchange_type = "fanout"
-        consumer.consumer_tag = "test_consumer"
-        
-        method = Mock(delivery_tag=1)
-        properties = Mock()
-        body = b"invalid json {{{{"  # Invalid JSON
-        
-        consumer._on_message(mock_channel, method, properties, body)
-        
-        # Should NACK because of invalid JSON (requeue=False)
-        mock_channel.basic_nack.assert_called()
-        call_args = mock_channel.basic_nack.call_args
-        assert call_args[1].get('requeue') is False
-    
-    @patch('pika.BlockingConnection')
-    def test_consumer_handles_empty_message(self, mock_conn):
-        """Test handling of empty messages"""
-        mock_channel = MagicMock()
-        mock_conn.return_value.channel.return_value = mock_channel
-        
-        consumer = BaseConsumer()
-        consumer.queue_name = "test"
-        consumer.exchange_name = "test"
-        consumer.exchange_type = "fanout"
-        consumer.consumer_tag = "test_consumer"
-        
-        method = Mock(delivery_tag=1)
-        properties = Mock()
-        body = b""  # Empty
-        
-        consumer._on_message(mock_channel, method, properties, body)
-        
-        # Should handle gracefully (nack with requeue=False)
-        mock_channel.basic_nack.assert_called()
-        call_args = mock_channel.basic_nack.call_args
-        assert call_args[1].get('requeue') is False
+@pytest.fixture
+def properties():
+    p = MagicMock()
+    p.headers = {}
+    return p
 
 
-class TestConsumerQueueDeclaration:
-    """Tests for queue and exchange declaration"""
-    
-    @patch('pika.BlockingConnection')
-    def test_declare_fanout_queue(self, mock_conn):
-        """Test declaring fanout exchange and queue"""
-        mock_channel = MagicMock()
-        mock_conn.return_value.channel.return_value = mock_channel
-        # Directly call the topology declaration helper and assert it interacts with the channel
-        from src.core.declarations import declare_all
-        declare_all(mock_channel)
-
-        # Verify exchange declared with correct parameters (any call may declare different exchanges)
-        assert mock_channel.exchange_declare.call_count > 0
-        found = any(call.kwargs.get('exchange') == "order.events" for call in mock_channel.exchange_declare.call_args_list)
-        assert found, "order.events exchange was not declared"
-        # ensure at least one of the calls declared a fanout style (coarse check)
-        assert any(call.kwargs.get('exchange_type') == 'fanout' for call in mock_channel.exchange_declare.call_args_list)
-    
-    @patch('pika.BlockingConnection')
-    def test_declare_durable_queue(self, mock_conn):
-        """Test declaring durable queue"""
-        mock_channel = MagicMock()
-        mock_conn.return_value.channel.return_value = mock_channel
-        # Use declaration helper to validate queue declaration arguments
-        from src.core.declarations import _declare_direct
-        _declare_direct(mock_channel)
-
-        mock_channel.queue_declare.assert_called()
-        call_args = mock_channel.queue_declare.call_args
-        assert call_args[1]['durable'] is True
+def published_exchanges(channel):
+    return [c.kwargs["exchange"] for c in channel.basic_publish.call_args_list]
 
 
-class TestConsumerRetryLogic:
-    """Tests for retry counting and logic"""
-    
-    def test_retry_count_increments(self):
-        """Test that retry counter increments"""
-        consumer = BaseConsumer()
-        # BaseConsumer in this codebase does not expose retry helpers; validate we can set a retry attribute
-        assert not hasattr(consumer, 'retry_count')
-        consumer.retry_count = 0
-        assert consumer.retry_count == 0
-        consumer.retry_count += 1
-        assert consumer.retry_count == 1
+class TestSuccessPath:
+    def test_acks_after_processing(self, mock_channel, method, properties):
+        consumer = RecordingConsumer()
+        consumer._on_message(mock_channel, method, properties, VALID_BODY)
+
+        assert consumer.processed == [{"order_id": "ORD-1", "amount": 10.0, "currency": "USD"}]
+        mock_channel.basic_ack.assert_called_once_with(delivery_tag=42)
+        mock_channel.basic_nack.assert_not_called()
+
+    def test_publishes_an_audit_log(self, mock_channel, method, properties):
+        RecordingConsumer()._on_message(mock_channel, method, properties, VALID_BODY)
+        assert "logs.info" in published_exchanges(mock_channel)
+
+    def test_emit_info_log_false_avoids_the_feedback_loop(self, mock_channel, method, properties):
+        """log_info_consumer reads logs.info; publishing there would feed itself."""
+        consumer = RecordingConsumer()
+        consumer.emit_info_log = False
+        consumer._on_message(mock_channel, method, properties, VALID_BODY)
+
+        mock_channel.basic_ack.assert_called_once()
+        assert "logs.info" not in published_exchanges(mock_channel)
+
+    def test_a_failed_audit_publish_does_not_undo_the_ack(self, mock_channel, method, properties):
+        mock_channel.basic_publish.side_effect = RuntimeError("channel closed")
+        RecordingConsumer()._on_message(mock_channel, method, properties, VALID_BODY)
+        mock_channel.basic_ack.assert_called_once_with(delivery_tag=42)
 
 
-class TestConsumerConnectionResilience:
-    """Tests for connection resilience"""
-    
-    @patch('pika.BlockingConnection')
-    def test_consumer_reconnects_on_failure(self, mock_conn):
-        """Test that consumer reconnects on connection failure"""
-        # First call fails, second succeeds
-        mock_conn.side_effect = [
-            Exception("Connection failed"),
-            MagicMock()
+class TestFailurePath:
+    def test_nacks_without_requeue_so_the_message_reaches_the_dlx(
+        self, mock_channel, method, properties
+    ):
+        """requeue=True would never increment x-death and would loop forever."""
+        consumer = RecordingConsumer(boom=ValueError("bad amount"))
+        consumer._on_message(mock_channel, method, properties, VALID_BODY)
+
+        mock_channel.basic_nack.assert_called_once_with(delivery_tag=42, requeue=False)
+        mock_channel.basic_ack.assert_not_called()
+
+    def test_reports_the_error(self, mock_channel, method, properties):
+        consumer = RecordingConsumer(boom=ValueError("bad amount"))
+        consumer._on_message(mock_channel, method, properties, VALID_BODY)
+
+        error_calls = [
+            c for c in mock_channel.basic_publish.call_args_list
+            if c.kwargs["exchange"] == "logs.error"
         ]
-        pytest.skip("Connection resilience test is environment-dependent; skip in unit suite")
+        assert len(error_calls) == 1
+        assert "bad amount" in json.loads(error_calls[0].kwargs["body"])["message"]
+
+    def test_message_is_still_nacked_when_the_error_log_publish_fails(
+        self, mock_channel, method, properties
+    ):
+        """Regression: an unguarded publish here left the message unacked forever."""
+        mock_channel.basic_publish.side_effect = RuntimeError("channel closed")
+        consumer = RecordingConsumer(boom=ValueError("bad amount"))
+        consumer._on_message(mock_channel, method, properties, VALID_BODY)
+
+        mock_channel.basic_nack.assert_called_once_with(delivery_tag=42, requeue=False)
+
+    def test_emit_error_log_false_avoids_the_feedback_loop(
+        self, mock_channel, method, properties
+    ):
+        """log_error_consumer reads logs.error; publishing there would feed itself."""
+        consumer = RecordingConsumer(boom=ValueError("boom"))
+        consumer.emit_error_log = False
+        consumer._on_message(mock_channel, method, properties, VALID_BODY)
+
+        assert "logs.error" not in published_exchanges(mock_channel)
+        mock_channel.basic_nack.assert_called_once()
 
 
-if __name__ == "__main__":
-    pytest.main([__file__, "-v"])
+class TestPoisonMessages:
+    def test_undecodable_body_is_dead_lettered_not_left_hanging(
+        self, mock_channel, method, properties
+    ):
+        """Regression: this used to raise inside pika's callback, leaving the
+        message unacked and the consumer looping on it forever."""
+        consumer = RecordingConsumer()
+        consumer._on_message(mock_channel, method, properties, POISON_BODY)
+
+        mock_channel.basic_nack.assert_called_once_with(delivery_tag=42, requeue=False)
+        assert consumer.processed == []
+
+    def test_poison_does_not_escape_into_the_pika_callback(
+        self, mock_channel, method, properties
+    ):
+        RecordingConsumer()._on_message(mock_channel, method, properties, POISON_BODY)
+
+
+class TestLifecycle:
+    def test_construction_does_not_install_signal_handlers(self):
+        """Merely constructing a consumer must not hijack the process's SIGINT."""
+        before = signal.getsignal(signal.SIGINT)
+        RecordingConsumer()
+        assert signal.getsignal(signal.SIGINT) is before
+
+    def test_run_requires_a_queue_and_tag(self):
+        class Unconfigured(BaseConsumer):
+            def process_message(self, payload):
+                pass
+
+        with pytest.raises(ValueError, match="queue_name and consumer_tag"):
+            Unconfigured().run()
+
+    def test_consumer_tag_carries_the_container_name(self, monkeypatch):
+        """The chaos service matches container names against live consumer tags."""
+        monkeypatch.setenv("HOSTNAME", "payment_consumer_1")
+        tag = RecordingConsumer()._build_consumer_tag()
+        assert "@payment_consumer_1:" in tag
+        assert tag.startswith("test_consumer@")
+
+    def test_signal_handler_only_sets_the_stop_flag(self):
+        """Calling into pika from a signal handler can corrupt channel state."""
+        consumer = RecordingConsumer()
+        consumer.channel = MagicMock()
+        consumer._signal_handler(signal.SIGTERM, None)
+
+        assert consumer.should_stop is True
+        consumer.channel.stop_consuming.assert_not_called()

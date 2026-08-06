@@ -1,25 +1,35 @@
-const CHAOS    = import.meta.env.VITE_CHAOS_API_URL    || 'http://localhost:8080'
-const PRODUCER = import.meta.env.VITE_PRODUCER_API_URL || 'http://localhost:8090'
-const post = (base, path, body={}) =>
-  fetch(`${base}${path}`, { method:'POST', headers:{'Content-Type':'application/json'},
-                             body: JSON.stringify(body) }).then(r => r.json())
-const get  = (base, path) => fetch(`${base}${path}`).then(r => r.json())
+/**
+ * Chaos Control Panel and Producer API clients.
+ *
+ * All paths are relative and proxied same-origin - see frontend/nginx.conf.
+ * These POSTs throw ApiError on failure so the UI can report it rather than
+ * showing a success message for a request the server rejected.
+ */
+import { apiGet, apiPost } from './client'
 
-export const getStatus          = ()           => get(CHAOS, '/chaos/status')
-export const getDlxHistory      = (limit=50)   => get(CHAOS, `/chaos/dlx/history?limit=${limit}`)
-export const stopConsumer       = s            => post(CHAOS, '/chaos/consumer/stop',   {service:s})
-export const killConsumer       = s            => post(CHAOS, '/chaos/consumer/kill',   {service:s})
-export const pauseConsumer      = s            => post(CHAOS, '/chaos/consumer/pause',  {service:s})
-export const resumeConsumer     = s            => post(CHAOS, '/chaos/consumer/resume', {service:s})
-export const startConsumer      = s            => post(CHAOS, '/chaos/consumer/start',  {service:s})
-export const stopBroker         = n            => post(CHAOS, '/chaos/broker/stop',  {node:n})
-export const killBroker         = n            => post(CHAOS, '/chaos/broker/kill',  {node:n})
-export const startBroker        = n            => post(CHAOS, '/chaos/broker/start', {node:n})
-export const purgeQueue         = q            => post(CHAOS, '/chaos/queue/purge',  {queue:q})
-export const injectPoison       = (q,c)        => post(CHAOS, '/chaos/queue/poison', {queue:q,count:c})
-export const floodQueue         = (q,c)        => post(CHAOS, '/chaos/queue/flood',  {queue:q,count:c})
-export const dropAllConnections = ()           => post(CHAOS, '/chaos/connections/drop-all')
-export const restoreAll         = ()           => post(CHAOS, '/chaos/restore-all')
+const CHAOS = '/api/chaos'
+const ORDERS = '/api/orders'
 
-export const publishOrder       = body         => post(PRODUCER, '/orders/publish', body)
-export const publishBatch       = body         => post(PRODUCER, '/orders/batch',   body)
+export const getStatus = () => apiGet(`${CHAOS}/status`)
+export const getDlxHistory = (limit = 50) => apiGet(`${CHAOS}/dlx/history?limit=${limit}`)
+
+export const stopConsumer = (service) => apiPost(`${CHAOS}/consumer/stop`, { service })
+export const killConsumer = (service) => apiPost(`${CHAOS}/consumer/kill`, { service })
+export const pauseConsumer = (service) => apiPost(`${CHAOS}/consumer/pause`, { service })
+export const resumeConsumer = (service) => apiPost(`${CHAOS}/consumer/resume`, { service })
+export const startConsumer = (service) => apiPost(`${CHAOS}/consumer/start`, { service })
+
+export const stopBroker = (node) => apiPost(`${CHAOS}/broker/stop`, { node })
+export const killBroker = (node) => apiPost(`${CHAOS}/broker/kill`, { node })
+export const startBroker = (node) => apiPost(`${CHAOS}/broker/start`, { node })
+
+export const purgeQueue = (queue) => apiPost(`${CHAOS}/queue/purge`, { queue })
+export const injectPoison = (queue, count) => apiPost(`${CHAOS}/queue/poison`, { queue, count })
+export const floodQueue = (queue, count) => apiPost(`${CHAOS}/queue/flood`, { queue, count })
+export const dropAllConnections = () => apiPost(`${CHAOS}/connections/drop-all`)
+export const restoreAll = () => apiPost(`${CHAOS}/restore-all`)
+
+export const publishMessage = (body) => apiPost(`${CHAOS}/message/publish`, body)
+
+export const publishOrder = (body) => apiPost(`${ORDERS}/publish`, body)
+export const publishBatch = (body) => apiPost(`${ORDERS}/batch`, body)

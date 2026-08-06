@@ -1,206 +1,143 @@
 """Docker SDK wrapper for container lifecycle control."""
-import docker
-from docker.errors import NotFound, APIError, DockerException
 import os
-import logging
 
-logger = logging.getLogger(__name__)
+import docker
+from docker.errors import APIError, NotFound
+
+from chaos_service import containers
+from src.utils.logger import setup_logging
+
+logger = setup_logging(__name__)
+
+DEFAULT_SOCKET = "unix:///var/run/docker.sock"
+
+
+class ContainerNotAllowed(PermissionError):
+    """The requested container is not part of the ShopFlow stack."""
 
 
 class DockerService:
     def __init__(self):
-        # Lazy initialization - connect only when first method is called
+        # Connect lazily so the service can start before the socket is usable.
         self._client = None
-        self._docker_host = self._normalize_docker_host(
-            os.getenv('DOCKER_HOST', 'unix:///var/run/docker.sock')
-        )
-    
-    def _normalize_docker_host(self, host):
-        if host is None or host.strip() == "":
-            return 'unix:///var/run/docker.sock'
+        self._docker_host = self._normalize_docker_host(os.getenv("DOCKER_HOST"))
 
+    @staticmethod
+    def _normalize_docker_host(host: str | None) -> str:
+        """Resolve DOCKER_HOST to something the SDK accepts.
+
+        Docker Compose injects an `http+docker://` pseudo-scheme in some setups,
+        which the SDK cannot parse; the local socket is the right answer there.
+        """
+        if not host or not host.strip():
+            return DEFAULT_SOCKET
         host = host.strip()
-        if host.startswith('http+docker://'):
-            fallback = 'unix:///var/run/docker.sock'
-            if os.path.exists('/var/run/docker.sock'):
-                logger.warning(
-                    "DOCKER_HOST uses unsupported scheme http+docker; "
-                    "falling back to socket %s",
-                    fallback,
-                )
-                return fallback
-            logger.warning(
-                "DOCKER_HOST uses unsupported scheme http+docker and no local socket "
-                "was found; continuing with original value %s",
-                host,
-            )
+        if host.startswith("http+docker://"):
+            if os.path.exists("/var/run/docker.sock"):
+                logger.warning("DOCKER_HOST uses the unsupported http+docker scheme; "
+                               "falling back to %s", DEFAULT_SOCKET)
+                return DEFAULT_SOCKET
             return host
-
-        if host.startswith('tcp://'):
-            host = 'http://' + host[len('tcp://'):]
-
+        if host.startswith("tcp://"):
+            return "http://" + host[len("tcp://"):]
         return host
 
-    def _ensure_connected(self):
-        """Lazily initialize Docker client on first use."""
-        if self._client is None:
-            try:
-                self._client = docker.DockerClient(base_url=self._docker_host)
-                logger.info(f"Connected to Docker at {self._docker_host}")
-            except docker.errors.DockerException as e:
-                message = str(e).lower()
-                fallback = 'unix:///var/run/docker.sock'
-                if 'http+docker' in message and self._docker_host != fallback:
-                    if os.path.exists('/var/run/docker.sock'):
-                        logger.warning(
-                            "Initial Docker client failed for %s; retrying with socket %s",
-                            self._docker_host, fallback,
-                        )
-                        try:
-                            self._client = docker.DockerClient(base_url=fallback)
-                            logger.info(f"Connected to Docker at {fallback}")
-                            return
-                        except Exception as retry_error:
-                            logger.error(
-                                "Retry with socket %s also failed: %s",
-                                fallback, retry_error,
-                            )
-                logger.error(f"Docker connection failed: {e}")
-                raise RuntimeError(f"Docker connection failed: {e}")
-            except FileNotFoundError:
-                logger.error(f"Docker socket not found at {self._docker_host}")
-                raise RuntimeError(f"Docker socket not found at {self._docker_host}")
-            except Exception as e:
-                logger.error(f"Unexpected error connecting to Docker: {type(e).__name__}: {e}")
-                raise RuntimeError(f"Unexpected error connecting to Docker: {type(e).__name__}: {e}")
-
-    def _get(self, name):
-        """Get container by name with error handling."""
-        self._ensure_connected()
+    def _ensure_connected(self) -> None:
+        if self._client is not None:
+            return
         try:
-            return self._client.containers.get(name)
-        except NotFound:
-            logger.warning(f"Container not found: {name}")
-            raise
-        except APIError as e:
-            logger.error(f"Docker API error getting container {name}: {e}")
-            raise
-
-    def stop_container(self, name):
-        """Stop a container gracefully."""
-        try: 
-            self._ensure_connected()
-            self._get(name).stop(timeout=10)
-            logger.info(f"Container stopped: {name}")
-            return {"status": "success", "message": f"{name} stopped"}
-        except NotFound:
-            logger.warning(f"Container not found: {name}")
-            return {"status": "error", "message": f"{name} not found"}
-        except APIError as e:
-            logger.error(f"Failed to stop {name}: {e}")
-            return {"status": "error", "message": f"Error stopping {name}: {e}"}
-
-    def kill_container(self, name):
-        """Kill a container immediately."""
-        try: 
-            self._ensure_connected()
-            self._get(name).kill(signal="SIGKILL")
-            logger.info(f"Container killed: {name}")
-            return {"status": "success", "message": f"{name} killed"}
-        except NotFound:
-            logger.warning(f"Container not found: {name}")
-            return {"status": "error", "message": f"{name} not found"}
-        except APIError as e:
-            logger.error(f"Failed to kill {name}: {e}")
-            return {"status": "error", "message": f"Error killing {name}: {e}"}
-
-    def start_container(self, name):
-        """Start a stopped container."""
-        try: 
-            self._ensure_connected()
-            self._get(name).start()
-            logger.info(f"Container started: {name}")
-            return {"status": "success", "message": f"{name} started"}
-        except NotFound:
-            logger.warning(f"Container not found: {name}")
-            return {"status": "error", "message": f"{name} not found"}
-        except APIError as e:
-            logger.error(f"Failed to start {name}: {e}")
-            return {"status": "error", "message": f"Error starting {name}: {e}"}
-
-    def pause_container(self, name):
-        """Pause a running container."""
-        try: 
-            self._ensure_connected()
-            self._get(name).pause()
-            logger.info(f"Container paused: {name}")
-            return {"status": "success", "message": f"{name} paused"}
-        except APIError as e:
-            logger.error(f"Failed to pause {name}: {e}")
-            return {"status": "error", "message": f"Error pausing {name}: {e}"}
-
-    def unpause_container(self, name):
-        """Unpause a paused container."""
-        try:
-            self._ensure_connected()
-            self._get(name).unpause()
-            logger.info(f"Container unpaused: {name}")
-            return {"status": "success", "message": f"{name} unpaused"}
-        except APIError as e:
-            logger.error(f"Failed to unpause {name}: {e}")
-            return {"status": "error", "message": f"Error unpausing {name}: {e}"}
-
-    def get_all_status(self):
-        """Get status of all ShopFlow containers."""
-        try:
-            self._ensure_connected()
-            shopflow_names = {
-                "rabbit1", "rabbit2", "rabbit3", "haproxy", "cluster_init",
-                "chaos_service", "shopflow_frontend", "producer_api",
-                "payment_consumer_1", "payment_consumer_2",
-                "inventory_consumer_1", "inventory_consumer_2",
-                "email_consumer", "sms_consumer", "push_consumer",
-                "log_error_consumer", "log_info_consumer",
-                "notif_email_consumer", "notif_sms_consumer", "notif_audit_consumer",
-                "eu_processor", "us_processor", "xml_legacy_consumer", "dead_letter_consumer",
-            }
-            containers = self._client.containers.list(all=True)
-            status_dict = {
-                c.name: {"state": c.status, "image": c.image.tags[0] if c.image.tags else "unknown"}
-                for c in containers if c.name in shopflow_names
-            }
-            logger.info(f"Retrieved status for {len(status_dict)} containers")
-            return status_dict
-        except Exception as e:
-            logger.error(f"Failed to get container status: {e}")
-            raise
-
-    def restore_all(self):
-        """Restart all stopped containers."""
-        try:
-            self._ensure_connected()
-            stopped = [c for c in self._client.containers.list(all=True)
-                      if c.status == "exited"]
-            
-            failed = []
-            for container in stopped:
+            self._client = docker.DockerClient(base_url=self._docker_host)
+            logger.info("Connected to Docker at %s", self._docker_host)
+            return
+        except Exception as exc:
+            if self._docker_host != DEFAULT_SOCKET and os.path.exists("/var/run/docker.sock"):
+                logger.warning("Docker client failed for %s (%s); retrying on %s",
+                               self._docker_host, exc, DEFAULT_SOCKET)
                 try:
-                    container.start()
-                    logger.info(f"Started container: {container.name}")
-                except APIError as e:
-                    logger.error(f"Failed to start {container.name}: {e}")
-                    failed.append(container.name)
-            
-            if failed:
-                logger.warning(f"Failed to start {len(failed)} containers: {failed}")
-            
-            return {
-                "status": "restored",
-                "started": len(stopped) - len(failed),
-                "failed": failed if failed else None,
-                "total": len(stopped)
-            }
-        except Exception as e:
-            logger.error(f"Failed to restore containers: {e}")
-            raise
+                    self._client = docker.DockerClient(base_url=DEFAULT_SOCKET)
+                    logger.info("Connected to Docker at %s", DEFAULT_SOCKET)
+                    return
+                except Exception as retry_exc:
+                    exc = retry_exc
+            logger.error("Docker connection failed: %s", exc)
+            raise RuntimeError(f"Docker connection failed: {exc}") from exc
 
+    def _get(self, name: str):
+        if name not in containers.ALL:
+            raise ContainerNotAllowed(
+                f"{name!r} is not a ShopFlow container. "
+                f"Expected one of {sorted(containers.ALL)}."
+            )
+        self._ensure_connected()
+        return self._client.containers.get(name)
+
+    def _action(self, name: str, verb: str, fn_name: str, **kwargs) -> dict:
+        """Run one lifecycle action, reporting failures uniformly.
+
+        Previously pause/unpause let NotFound escape as a 500 while stop/kill/start
+        returned a friendly error dict for the same condition.
+        """
+        try:
+            getattr(self._get(name), fn_name)(**kwargs)
+        except NotFound:
+            logger.warning("Container not found: %s", name)
+            return {"status": "error", "message": f"{name} not found"}
+        except APIError as exc:
+            logger.error("Failed to %s %s: %s", verb, name, exc)
+            return {"status": "error", "message": f"Error during {verb} of {name}: {exc}"}
+        logger.info("Container %s: %s", verb, name)
+        return {"status": "success", "message": f"{name} {verb}"}
+
+    def stop_container(self, name: str) -> dict:
+        return self._action(name, "stopped", "stop", timeout=10)
+
+    def kill_container(self, name: str) -> dict:
+        return self._action(name, "killed", "kill", signal="SIGKILL")
+
+    def start_container(self, name: str) -> dict:
+        return self._action(name, "started", "start")
+
+    def pause_container(self, name: str) -> dict:
+        return self._action(name, "paused", "pause")
+
+    def unpause_container(self, name: str) -> dict:
+        return self._action(name, "unpaused", "unpause")
+
+    def get_all_status(self) -> dict:
+        self._ensure_connected()
+        status = {
+            c.name: {
+                "state": c.status,
+                "image": c.image.tags[0] if c.image.tags else "unknown",
+            }
+            for c in self._client.containers.list(all=True)
+            if c.name in containers.ALL
+        }
+        logger.info("Retrieved status for %d containers", len(status))
+        return status
+
+    def restore_all(self) -> dict:
+        """Start every stopped ShopFlow container.
+
+        Scoped to the allow-list: this used to start every exited container on
+        the host, including ones belonging to other projects.
+        """
+        self._ensure_connected()
+        stopped = [
+            c for c in self._client.containers.list(all=True)
+            if c.status == "exited" and c.name in containers.RESTORABLE
+        ]
+        failed = []
+        for container in stopped:
+            try:
+                container.start()
+                logger.info("Started container: %s", container.name)
+            except APIError as exc:
+                logger.error("Failed to start %s: %s", container.name, exc)
+                failed.append(container.name)
+        return {
+            "status": "restored",
+            "started": len(stopped) - len(failed),
+            "failed": failed or None,
+            "total": len(stopped),
+        }

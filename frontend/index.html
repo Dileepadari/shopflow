@@ -3,9 +3,50 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>ShopFlow - RabbitMQ Dashboard</title>
+
+    <title>ShopFlow — Distributed Order Processing</title>
+    <meta
+      name="description"
+      content="Live dashboard for ShopFlow: a distributed order processing and notification system built on a 3-node RabbitMQ quorum cluster, with fault injection and dead letter auditing."
+    />
+    <meta name="author" content="ADK Dev" />
+    <meta name="theme-color" content="#47266b" media="(prefers-color-scheme: light)" />
+    <meta name="theme-color" content="#131a25" media="(prefers-color-scheme: dark)" />
+
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="ShopFlow — Distributed Order Processing" />
+    <meta
+      property="og:description"
+      content="Real-time RabbitMQ observability and chaos engineering dashboard."
+    />
+    <meta property="og:image" content="/adk-logo.png" />
+
+    <link rel="icon" type="image/png" href="/adk-mark.png" />
+    <link rel="apple-touch-icon" href="/adk-mark.png" />
+
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap"
+      rel="stylesheet"
+    />
+
+    <script>
+      // Applied before first paint so the dashboard never flashes the wrong theme.
+      (function () {
+        try {
+          var stored = localStorage.getItem('shopflow-theme')
+          var prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches
+          if (stored === 'dark' || (!stored && prefersDark)) {
+            document.documentElement.classList.add('dark')
+          }
+        } catch (e) {
+          document.documentElement.classList.add('dark')
+        }
+      })()
+    </script>
   </head>
-  <body class="bg-gray-950 text-gray-100">
+  <body>
     <div id="root"></div>
     <script type="module" src="/src/main.jsx"></script>
   </body>
