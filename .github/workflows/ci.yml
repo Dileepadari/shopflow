@@ -96,7 +96,7 @@ jobs:
             if curl -sf http://localhost:8090/health >/dev/null \
                && curl -sf http://localhost:8080/health >/dev/null \
                && curl -sf http://localhost:3000/ >/dev/null; then
-              consumers=$(curl -sf -u admin:shopflow123 \
+              consumers=$(curl -sf -u "${RABBITMQ_USER:-admin}:${RABBITMQ_PASS:-shopflow123}" \
                   http://localhost:15672/api/consumers/shopflow \
                   | python3 -c 'import sys,json; print(len(json.load(sys.stdin)))' 2>/dev/null || echo 0)
               if [ "$consumers" -ge 16 ]; then
