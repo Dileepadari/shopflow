@@ -1,3 +1,5 @@
+<!-- Generated from README.md by scripts/build_light_readme.py. Do not edit by hand. -->
+
 <div align="center">
 
 <picture>
@@ -25,7 +27,7 @@
 
 **[Developer documentation](./DEVDOC.md)** &middot; [Screenshots](#the-dashboard) &middot; [Quick start](#quick-start) &middot; [Chaos](#breaking-things-on-purpose)
 
-<p><b>Dark mode</b> &middot; <a href="./README-light.md">View this page in light mode</a></p>
+<p><b>Light mode</b> &middot; <a href="./README.md">View this page in dark mode</a></p>
 
 </div>
 
@@ -215,14 +217,14 @@ right.
 Cluster totals, live publish and acknowledge rates sampled every two seconds, and
 the deepest queues right now.
 
-<img src="docs/screenshots/dark/01-overview.png" alt="Overview tab: cluster totals and a live throughput chart" loading="lazy">
+<img src="docs/screenshots/light/01-overview.png" alt="Overview tab: cluster totals and a live throughput chart" loading="lazy">
 
 ### Queues
 
 Every queue with its backlog, in-flight count, consumer count and type. All
 fourteen are quorum queues, so each one is replicated across all three nodes.
 
-<img src="docs/screenshots/dark/02-queues.png" alt="Queues tab: per-queue backlog, unacknowledged count, consumers and queue type" loading="lazy">
+<img src="docs/screenshots/light/02-queues.png" alt="Queues tab: per-queue backlog, unacknowledged count, consumers and queue type" loading="lazy">
 
 ### Exchanges
 
@@ -230,7 +232,7 @@ Each exchange with everything bound to it and the routing key or header rule tha
 does the binding. This is the map to read when a message does not arrive where
 you expected.
 
-<img src="docs/screenshots/dark/03-exchanges.png" alt="Exchanges tab: each exchange with its bindings and routing keys" loading="lazy">
+<img src="docs/screenshots/light/03-exchanges.png" alt="Exchanges tab: each exchange with its bindings and routing keys" loading="lazy">
 
 ### Consumers
 
@@ -238,34 +240,34 @@ The live subscriptions, their prefetch and acknowledgement mode, and which
 container each one runs in. A consumer that has stopped shows up here before the
 backlog does.
 
-<img src="docs/screenshots/dark/04-consumers.png" alt="Consumers tab: active subscriptions with prefetch and acknowledgement mode" loading="lazy">
+<img src="docs/screenshots/light/04-consumers.png" alt="Consumers tab: active subscriptions with prefetch and acknowledgement mode" loading="lazy">
 
 ### DLX Audit
 
 Everything that failed permanently: which queue it came from, whether it expired
 or exhausted its retries, and the order it belonged to.
 
-<img src="docs/screenshots/dark/05-dlx-audit.png" alt="DLX Audit tab: dead lettered messages with their source queue and retry count" loading="lazy">
+<img src="docs/screenshots/light/05-dlx-audit.png" alt="DLX Audit tab: dead lettered messages with their source queue and retry count" loading="lazy">
 
 ### Orders
 
 Place one order or a batch, in JSON or XML, to either region.
 
-<img src="docs/screenshots/dark/06-orders.png" alt="Orders tab: form for publishing single orders or batches" loading="lazy">
+<img src="docs/screenshots/light/06-orders.png" alt="Orders tab: form for publishing single orders or batches" loading="lazy">
 
 ### Publisher
 
 Publish a raw message to any exchange. Picking an exchange explains how that type
 routes and offers samples that demonstrate it.
 
-<img src="docs/screenshots/dark/07-publisher.png" alt="Publisher tab: raw message published to a topic exchange with a routing key" loading="lazy">
+<img src="docs/screenshots/light/07-publisher.png" alt="Publisher tab: raw message published to a topic exchange with a routing key" loading="lazy">
 
 ### Chaos
 
 Stop, kill or pause any consumer, and take a broker node down. Every action here
 is reversible.
 
-<img src="docs/screenshots/dark/08-chaos.png" alt="Chaos tab: controls for stopping, killing and pausing consumers and broker nodes" loading="lazy">
+<img src="docs/screenshots/light/08-chaos.png" alt="Chaos tab: controls for stopping, killing and pausing consumers and broker nodes" loading="lazy">
 
 ### On a phone and a tablet
 
