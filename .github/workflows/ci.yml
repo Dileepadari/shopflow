@@ -36,6 +36,49 @@ jobs:
           LOG_DIR: ${{ runner.temp }}/shopflow-logs
         run: pytest -m "not integration" --cov --cov-report=term-missing
 
+  audit:
+    name: Dependency audit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.13"
+          cache: pip
+          cache-dependency-path: requirements.txt
+
+      # Runtime dependencies only: these are what ship in the service images.
+      # Nothing was checking them, and python-dotenv sat two minor versions
+      # behind a symlink-following advisory in set_key/unset_key.
+      - name: Known vulnerabilities in runtime dependencies
+        run: |
+          pip install --quiet pip-audit
+          pip-audit --strict -r requirements.txt
+
+  hygiene:
+    name: Plain ASCII in prose and interface strings
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      # Em dashes, en dashes, decorative arrows and dingbats. This started at
+      # 116 occurrences across thirteen files, including ASCII diagrams in the
+      # README where an arrow also broke column alignment when replaced.
+      #
+      # tests/unit/test_message_builder.py is exempt on purpose: its non-ASCII
+      # is the subject of the test, which asserts that two, three and four byte
+      # UTF-8 survives an encode/decode round trip.
+      - name: No em dashes, arrows or dingbats
+        run: |
+          if git ls-files -z \
+              ':!tests/unit/test_message_builder.py' \
+              | xargs -0 grep -nP '[\x{1F000}-\x{1FAFF}\x{2600}-\x{27BF}\x{2B00}-\x{2BFF}\x{2190}-\x{21FF}\x{2014}\x{2013}\x{FE0F}]' \
+                --binary-files=without-match; then
+            echo "Found an em dash, en dash, arrow or dingbat. Use -, -> or plain words."
+            exit 1
+          fi
+          echo "clean"
+
   frontend:
     name: Frontend - lint and build
     runs-on: ubuntu-latest
