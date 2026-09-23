@@ -1,12 +1,16 @@
 <div align="center">
-<img src="docs/adk-logo.png" alt="ADK Dev" width="140" />
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="./docs/assets/adk_dev_logo_light.png">
+  <img src="./docs/assets/adk_dev_logo_dark.png" width="150" alt="ADK DEV" loading="lazy">
+</picture>
 
 # ShopFlow - Developer Guide
 
 </div>
 
 Everything you need to work on ShopFlow rather than just run it. If you only want
-to start it and click around, the [README](../README.md) is the right document.
+to start it and click around, the [README](./README.md) is the right document.
 
 ---
 
