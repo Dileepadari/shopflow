@@ -89,17 +89,17 @@ print(f'  Ack rate:       {rate(\"ack_details\"):.1f} msg/s')
 " 2>/dev/null || echo "  unavailable"
 }
 
-printf "${GREEN}ShopFlow monitor — press q to quit${RESET}\n"
+printf "${GREEN}ShopFlow monitor - press q to quit${RESET}\n"
 sleep 1
 
 while true; do
     clear
-    printf "${CYAN}ShopFlow — %s${RESET}\n" "$(date '+%Y-%m-%d %H:%M:%S')"
+    printf "${CYAN}ShopFlow - %s${RESET}\n" "$(date '+%Y-%m-%d %H:%M:%S')"
     show_cluster
     show_queues
     show_consumers
     show_rates
-    printf "\n${CYAN}Refreshing in %ss — Enter to refresh now, q to quit${RESET}\n" "$INTERVAL"
+    printf "\n${CYAN}Refreshing in %ss - Enter to refresh now, q to quit${RESET}\n" "$INTERVAL"
     if read -r -t "$INTERVAL" -n 1 key; then
         case "$key" in
             q | Q) printf "\n"; exit 0 ;;

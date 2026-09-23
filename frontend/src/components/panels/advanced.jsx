@@ -87,7 +87,7 @@ export function DLXAuditLogPanel({ dlxHistory = [], loading, error }) {
       </div>
 
       {records.length === 0 ? (
-        <EmptyState message="No dead-lettered messages — everything is being processed successfully." />
+        <EmptyState message="No dead-lettered messages - everything is being processed successfully." />
       ) : (
         <ul className="space-y-2">
           {records.map((record, index) => {
@@ -108,7 +108,7 @@ export function DLXAuditLogPanel({ dlxHistory = [], loading, error }) {
                   <div className="flex items-start justify-between gap-3 flex-wrap">
                     <div className="min-w-0">
                       <Mono className="text-content">
-                        {record.original_queue || 'unknown'} → dead_letter_queue
+                        {record.original_queue || 'unknown'} -> dead_letter_queue
                       </Mono>
                       <p className="text-xs text-muted mt-1">
                         {record.received_at
@@ -150,7 +150,7 @@ export function DLXAuditLogPanel({ dlxHistory = [], loading, error }) {
 
 const EXCHANGE_TEMPLATES = {
   default: {
-    name: 'Default exchange — work queues',
+    name: 'Default exchange - work queues',
     description:
       'Routes by queue name. Consumed by payment_consumer and inventory_consumer, prefetch 1.',
     routingKeyHint: 'payment_queue',
@@ -181,7 +181,7 @@ const EXCHANGE_TEMPLATES = {
     ],
   },
   'order.events': {
-    name: 'Fanout — order.events',
+    name: 'Fanout - order.events',
     description: 'Broadcasts to email_queue, sms_queue and push_queue. The routing key is ignored.',
     routingKeyHint: '',
     outcome: 'Delivered to all three notification consumers',
@@ -201,7 +201,7 @@ const EXCHANGE_TEMPLATES = {
     ],
   },
   'logs.error': {
-    name: 'Direct — logs.error',
+    name: 'Direct - logs.error',
     description: 'Routing keys "error" and "warning" both reach log_error_queue.',
     routingKeyHint: 'error',
     outcome: 'Persisted to error_logs.jsonl on the shared volume',
@@ -229,7 +229,7 @@ const EXCHANGE_TEMPLATES = {
     ],
   },
   'logs.info': {
-    name: 'Direct — logs.info',
+    name: 'Direct - logs.info',
     description: 'Routing keys "info" and "debug" both reach log_info_queue.',
     routingKeyHint: 'info',
     outcome: 'Printed by log_info_consumer',
@@ -247,7 +247,7 @@ const EXCHANGE_TEMPLATES = {
     ],
   },
   'notifications.topic': {
-    name: 'Topic — notifications.topic',
+    name: 'Topic - notifications.topic',
     description:
       'notification.email.* reaches the email handler, notification.sms.urgent the SMS handler, and # the audit log.',
     routingKeyHint: 'notification.email.normal',
@@ -269,14 +269,14 @@ const EXCHANGE_TEMPLATES = {
         body: { order_id: 'ORD-SMS-001', customer_phone: '+1-555-0100', message: 'Payment failed' },
       },
       {
-        label: 'SMS (normal) — audit only',
+        label: 'SMS (normal) - audit only',
         key: 'notification.sms.normal',
         body: { order_id: 'ORD-SMS-002', customer_phone: '+1-555-0101', message: 'Shipped' },
       },
     ],
   },
   'orders.headers': {
-    name: 'Headers — orders.headers',
+    name: 'Headers - orders.headers',
     description:
       'Routes on the region and format headers, not the routing key. region=EU/US with format=json, or format=xml for the legacy queue.',
     routingKeyHint: '',
@@ -587,7 +587,7 @@ export function OverviewPanel({ overview = {}, queues = [], messageHistory = [],
           <Stat
             label="Unacknowledged"
             value={unacked}
-            description="Delivered but not yet ACKed — in flight right now"
+            description="Delivered but not yet ACKed - in flight right now"
           />
           <Stat
             label="Total messages"

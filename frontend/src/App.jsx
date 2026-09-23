@@ -183,7 +183,7 @@ export default function App() {
       </main>
 
       <footer className="border-t border-line px-3 sm:px-6 py-3 text-xs text-muted flex flex-col sm:flex-row justify-between gap-1">
-        <p>Live — refreshed every {pollMs / 1000} seconds</p>
+        <p>Live - refreshed every {pollMs / 1000} seconds</p>
         <p className="sm:text-right">
           © 2026 ADK Dev · Dileep Adari
           <span className="text-subtle">

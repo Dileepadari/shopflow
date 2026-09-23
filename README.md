@@ -7,7 +7,7 @@
 **Distributed Order Processing & Notification System**
 
 A complete, runnable e-commerce backend where every service talks to every other
-service through RabbitMQ — and where you can break things on purpose and watch it recover.
+service through RabbitMQ - and where you can break things on purpose and watch it recover.
 
 [![CI](https://github.com/Dileepadari/shopflow/actions/workflows/ci.yml/badge.svg)](https://github.com/Dileepadari/shopflow/actions/workflows/ci.yml)
 [![RabbitMQ](https://img.shields.io/badge/RabbitMQ-4.3-FF6600?logo=rabbitmq&logoColor=white)](https://www.rabbitmq.com/)
@@ -64,8 +64,8 @@ carry on.
 | **Chaos Control Panel** | Stop, kill, pause and flood things on demand |
 | **React dashboard** | Live view of queues, exchanges, consumers, throughput and failures |
 
-All five RabbitMQ exchange types are exercised by a single order — direct,
-fanout, topic, headers and the default exchange — plus a dead letter exchange for
+All five RabbitMQ exchange types are exercised by a single order - direct,
+fanout, topic, headers and the default exchange - plus a dead letter exchange for
 anything that fails.
 
 ---
@@ -73,7 +73,7 @@ anything that fails.
 ## Quick start
 
 **You need:** Docker Desktop, or Docker Engine with the Compose plugin. Nothing
-else — no Python, no Node, no local RabbitMQ.
+else - no Python, no Node, no local RabbitMQ.
 
 ```bash
 git clone https://github.com/Dileepadari/shopflow.git
@@ -86,7 +86,7 @@ The first build takes a few minutes while images download. Then open:
 
 ### **http://localhost:3000**
 
-Give it about a minute to settle — the cluster forms, `cluster_init` declares the
+Give it about a minute to settle - the cluster forms, `cluster_init` declares the
 topology, and only then do the consumers start. To watch that happen:
 
 ```bash
@@ -102,9 +102,9 @@ code 0, you are ready.
 
 | What | URL | Login |
 |---|---|---|
-| **Dashboard** | http://localhost:3000 | — |
-| Producer API docs | http://localhost:8090/docs | — |
-| Chaos Panel API docs | http://localhost:8080/docs | — |
+| **Dashboard** | http://localhost:3000 | - |
+| Producer API docs | http://localhost:8090/docs | - |
+| Chaos Panel API docs | http://localhost:8080/docs | - |
 | RabbitMQ management (node 1) | http://localhost:15672 | `admin` / `shopflow123` |
 | RabbitMQ management (node 2) | http://localhost:15673 | `admin` / `shopflow123` |
 | RabbitMQ management (node 3) | http://localhost:15674 | `admin` / `shopflow123` |
@@ -120,7 +120,7 @@ code 0, you are ready.
 
 ## Place your first order
 
-**From the dashboard** — open the **Orders** tab, pick a region, press Send.
+**From the dashboard** - open the **Orders** tab, pick a region, press Send.
 
 **From the command line:**
 
@@ -159,9 +159,9 @@ curl -X POST http://localhost:8090/orders/batch \
   default exchange         order.events           notifications.topic
    (work queues)             (fanout)                   (topic)
         │                        │                        │
-  payment_queue  ──┐        email_queue      notification.email.*    → notif_email_queue
-  inventory_queue  │        sms_queue        notification.sms.urgent → notif_sms_queue
-        │          │        push_queue       #                       → notif_audit_queue
+  payment_queue  ──┐        email_queue      notification.email.*   -> notif_email_queue
+  inventory_queue  │        sms_queue        notification.sms.urgent -> notif_sms_queue
+        │          │        push_queue       #                      -> notif_audit_queue
         │          │             │                        │
   2 workers each   │       3 consumers,             3 consumers
   compete for      │       each gets a copy
@@ -171,12 +171,12 @@ curl -X POST http://localhost:8090/orders/batch \
   logs.info / logs.error   orders.headers
        (direct)               (headers)
         │                        │
-  log_info_queue          region=EU + format=json → eu_queue
-  log_error_queue         region=US + format=json → us_queue
-                          format=xml              → xml_legacy_queue
+  log_info_queue          region=EU + format=json -> eu_queue
+  log_error_queue         region=US + format=json -> us_queue
+                          format=xml             -> xml_legacy_queue
 
   Anything that fails 3 times, or sits unconsumed for 60 seconds, is routed to
-  dead.letter.exchange → dead_letter_queue → the DLX Audit tab.
+  dead.letter.exchange -> dead_letter_queue -> the DLX Audit tab.
 ```
 
 ---
@@ -193,7 +193,7 @@ right.
 | **Exchanges** | Each exchange and exactly what is bound to it, with routing keys and header rules |
 | **Consumers** | Live subscriptions, prefetch settings, and which container each belongs to |
 | **Connections** | Open AMQP connections grouped by the cluster node serving them |
-| **DLX Audit** | Every message that failed permanently — source queue, reason, retry count, full body |
+| **DLX Audit** | Every message that failed permanently - source queue, reason, retry count, full body |
 | **Orders** | Place single orders or batches |
 | **Publisher** | Publish a raw message to any exchange, with ready-made samples per exchange type |
 | **Chaos** | Break things (see below) |
@@ -226,7 +226,7 @@ consumer stays healthy throughout.
 
 Stop `rabbit2`. HAProxy notices within seconds and stops sending it traffic. The
 quorum queues elect a new leader from the remaining two nodes. Publish more
-orders — everything still works. Start it again and it rejoins and catches up.
+orders - everything still works. Start it again and it rejoins and catches up.
 
 ### Flood a queue
 
@@ -304,8 +304,8 @@ locust -f tests/load/locustfile.py --host http://localhost:8090 \
        --headless -u 50 -r 5 -t 2m
 ```
 
-Note that the consumers deliberately sleep to simulate real work — payment takes
-2–5 seconds per message — so queue depth is expected to grow under load. That is
+Note that the consumers deliberately sleep to simulate real work - payment takes
+2-5 seconds per message - so queue depth is expected to grow under load. That is
 the demonstration, not a fault.
 
 ---
@@ -335,7 +335,7 @@ docker compose logs rabbit1 | tail -50
 docker compose ps
 ```
 
-If `cluster_init` failed, the consumers deliberately refuse to start — a
+If `cluster_init` failed, the consumers deliberately refuse to start - a
 half-declared topology would silently drop messages.
 </details>
 
@@ -365,7 +365,7 @@ happens easily if you stop a consumer and leave it stopped.
 <details>
 <summary><strong>A port is already in use</strong></summary>
 
-Change it in `.env` — every port is configurable (`FRONTEND_PORT`,
+Change it in `.env` - every port is configurable (`FRONTEND_PORT`,
 `PRODUCER_API_PORT`, `RABBIT1_MGMT_PORT`, and so on).
 </details>
 
@@ -403,10 +403,10 @@ The original product specification is in [`ShopFlow_PRD.pdf`](ShopFlow_PRD.pdf).
 
 ## Credits
 
-Built and maintained by **[Dileep Adari](https://dileepadari.dev)** — ADK Dev.
+Built and maintained by **[Dileep Adari](https://dileepadari.dev)** - ADK Dev.
 
 Originally developed as a distributed systems course project at IIIT Hyderabad by
-**Team 9 — Three Musketeers**, whose product requirements document still defines
+**Team 9 - Three Musketeers**, whose product requirements document still defines
 the system's behaviour and is included in this repository.
 
 ---

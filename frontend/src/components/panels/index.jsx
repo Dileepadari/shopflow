@@ -114,13 +114,13 @@ export function QueueMonitorPanel({ queues = [], loading, error }) {
       />
       <div className={LEGEND_CLASS}>
         <p>
-          <strong className="text-content">Ready</strong> — messages waiting to be delivered
+          <strong className="text-content">Ready</strong> - messages waiting to be delivered
         </p>
         <p>
-          <strong className="text-content">Unacked</strong> — delivered but not yet acknowledged
+          <strong className="text-content">Unacked</strong> - delivered but not yet acknowledged
         </p>
         <p>
-          <strong className="text-content">Type</strong> — quorum queues replicate across all three
+          <strong className="text-content">Type</strong> - quorum queues replicate across all three
           nodes
         </p>
       </div>
@@ -197,16 +197,16 @@ export function ExchangeMapPanel({ exchanges = [], bindings = [], loading, error
       />
       <div className={LEGEND_CLASS}>
         <p>
-          <strong className="text-content">Direct</strong> — exact routing-key match
+          <strong className="text-content">Direct</strong> - exact routing-key match
         </p>
         <p>
-          <strong className="text-content">Fanout</strong> — broadcast to every bound queue
+          <strong className="text-content">Fanout</strong> - broadcast to every bound queue
         </p>
         <p>
-          <strong className="text-content">Topic</strong> — pattern match with * and #
+          <strong className="text-content">Topic</strong> - pattern match with * and #
         </p>
         <p>
-          <strong className="text-content">Headers</strong> — match on message headers, not the key
+          <strong className="text-content">Headers</strong> - match on message headers, not the key
         </p>
       </div>
 
@@ -279,11 +279,11 @@ export function ConsumerStatusPanel({ consumers = [], status, loading, error }) 
       />
       <div className={LEGEND_CLASS}>
         <p>
-          <strong className="text-content">Prefetch</strong> — messages delivered before an
+          <strong className="text-content">Prefetch</strong> - messages delivered before an
           acknowledgement is required; 1 gives true fair dispatch
         </p>
         <p>
-          <strong className="text-content">Manual</strong> — the consumer explicitly ACKs, so a
+          <strong className="text-content">Manual</strong> - the consumer explicitly ACKs, so a
           crash requeues the message
         </p>
       </div>
@@ -352,14 +352,14 @@ export function ConsumerStatusPanel({ consumers = [], status, loading, error }) 
 }
 
 function formatBytes(bytes) {
-  if (!bytes) return '—'
+  if (!bytes) return '-'
   const units = ['B', 'KB', 'MB', 'GB', 'TB']
   const i = Math.min(Math.floor(Math.log(bytes) / Math.log(1024)), units.length - 1)
   return `${Math.round((bytes / 1024 ** i) * 100) / 100} ${units[i]}`
 }
 
 function formatUptime(ms) {
-  if (!ms) return '—'
+  if (!ms) return '-'
   const seconds = Math.floor(ms / 1000)
   const minutes = Math.floor(seconds / 60)
   const hours = Math.floor(minutes / 60)

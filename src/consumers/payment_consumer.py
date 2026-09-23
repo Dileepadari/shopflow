@@ -1,4 +1,4 @@
-"""FR-01: Payment work queue consumer. Slow (2–5s) simulating payment gateway."""
+"""FR-01: Payment work queue consumer. Slow (2-5s) simulating payment gateway."""
 from src.consumers._base_consumer import BaseConsumer
 
 

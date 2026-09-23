@@ -25,19 +25,19 @@ const FIELD_INPUT =
 
 /** What each consumer does, so the operator knows what breaking it will show. */
 const CONSUMER_NOTES = {
-  payment_consumer: 'Processes payments (2–5s each). The slowest queue, so backlog builds fastest here.',
-  inventory_consumer: 'Reserves stock (0.5–2s each).',
-  email_consumer: 'Fanout subscriber — email confirmations.',
-  sms_consumer: 'Fanout subscriber — SMS alerts.',
-  push_consumer: 'Fanout subscriber — push notifications.',
+  payment_consumer: 'Processes payments (2-5s each). The slowest queue, so backlog builds fastest here.',
+  inventory_consumer: 'Reserves stock (0.5-2s each).',
+  email_consumer: 'Fanout subscriber - email confirmations.',
+  sms_consumer: 'Fanout subscriber - SMS alerts.',
+  push_consumer: 'Fanout subscriber - push notifications.',
   log_error_consumer: 'Persists error logs to the shared volume.',
   log_info_consumer: 'Prints info and debug logs.',
-  notif_email_consumer: 'Topic routing — notification.email.*',
-  notif_sms_consumer: 'Topic routing — notification.sms.urgent only.',
-  notif_audit_consumer: 'Topic routing — receives everything via #.',
-  eu_processor: 'Headers routing — region=EU, format=json.',
-  us_processor: 'Headers routing — region=US, format=json.',
-  xml_legacy_consumer: 'Headers routing — format=xml, any region.',
+  notif_email_consumer: 'Topic routing - notification.email.*',
+  notif_sms_consumer: 'Topic routing - notification.sms.urgent only.',
+  notif_audit_consumer: 'Topic routing - receives everything via #.',
+  eu_processor: 'Headers routing - region=EU, format=json.',
+  us_processor: 'Headers routing - region=US, format=json.',
+  xml_legacy_consumer: 'Headers routing - format=xml, any region.',
   dead_letter_consumer: 'Drains the DLX. Stopping it stops dead letters being recorded.',
 }
 
@@ -93,7 +93,7 @@ export function ChaosControlPanel({ queues = [], status }) {
         typeof response?.result === 'string'
           ? response.result
           : response?.result?.message || 'done'
-      log(label, true, `${detail}${detail ? ' — ' : ''}${text}`)
+      log(label, true, `${detail}${detail ? ' - ' : ''}${text}`)
     } catch (err) {
       log(label, false, err.message)
     } finally {
@@ -116,7 +116,7 @@ export function ChaosControlPanel({ queues = [], status }) {
             <h2 className="text-sm font-semibold text-content">Chaos Control Panel</h2>
             <p className="text-xs text-muted mt-1">
               Inject faults and watch the system recover on the other tabs. Every action here is
-              reversible — “Restore all” brings back any container this panel stopped.
+              reversible - “Restore all” brings back any container this panel stopped.
             </p>
           </div>
         </div>
@@ -131,7 +131,7 @@ export function ChaosControlPanel({ queues = [], status }) {
         />
 
         {services.length === 0 ? (
-          <EmptyState message="No consumer containers reporting — is the chaos service running?" />
+          <EmptyState message="No consumer containers reporting - is the chaos service running?" />
         ) : (
           <>
             <div className="mb-3">
@@ -146,7 +146,7 @@ export function ChaosControlPanel({ queues = [], status }) {
               >
                 {services.map((s) => (
                   <option key={s.name} value={s.name}>
-                    {s.name} — {s.connection || s.state}
+                    {s.name} - {s.connection || s.state}
                   </option>
                 ))}
               </select>

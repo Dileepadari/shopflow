@@ -1,4 +1,4 @@
-"""FR-01: Inventory work queue consumer. Reserves stock (0.5–2s)."""
+"""FR-01: Inventory work queue consumer. Reserves stock (0.5-2s)."""
 from src.consumers._base_consumer import BaseConsumer
 
 

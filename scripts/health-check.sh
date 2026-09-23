@@ -46,7 +46,7 @@ check_http() {
     if [ "$code" = "$expected" ]; then
         ok "$name ($code)"
     else
-        bad "$name — expected $expected, got $code — $url"
+        bad "$name - expected $expected, got $code - $url"
     fi
 }
 

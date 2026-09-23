@@ -1,7 +1,7 @@
 <div align="center">
 <img src="adk-logo.png" alt="ADK Dev" width="140" />
 
-# ShopFlow — Developer Guide
+# ShopFlow - Developer Guide
 
 </div>
 
@@ -93,11 +93,11 @@ shopflow/
 │   ├── core/
 │   │   ├── config.py          frozen Settings dataclass, read from the environment
 │   │   ├── connection.py      pika connection/channel factory with a retry budget
-│   │   ├── declarations.py    ★ the single source of truth for all topology
+│   │   ├── declarations.py    * the single source of truth for all topology
 │   │   ├── message_builder.py persistent properties, order payloads, encode/decode
 │   │   └── management.py      RabbitMQ HTTP Management client, shared by both services
 │   ├── consumers/
-│   │   ├── _base_consumer.py  ★ ack/nack contract, reconnect, graceful shutdown
+│   │   ├── _base_consumer.py  * ack/nack contract, reconnect, graceful shutdown
 │   │   ├── dead_letter_consumer.py   owns the retry budget
 │   │   └── … 13 more, ~15 lines each
 │   ├── producers/order_producer.py   publishes one order to all five exchange types
@@ -111,12 +111,12 @@ shopflow/
 │   └── routes/{order,mgmt}_routes.py
 │
 ├── chaos_service/             FastAPI: fault injection
-│   ├── containers.py          ★ allow-list of containers it may touch
+│   ├── containers.py          * allow-list of containers it may touch
 │   ├── services/{docker,rabbitmq}_service.py
 │   └── routes/{consumer,broker,queue,message,status}_routes.py
 │
 ├── frontend/                  React 19 + Vite 8 + Tailwind 4
-│   ├── src/api/               client.js, chaos.js, rabbitmq.js — all relative paths
+│   ├── src/api/               client.js, chaos.js, rabbitmq.js - all relative paths
 │   ├── src/hooks/             useDashboardData (one poll for the whole page)
 │   ├── src/components/        ui/ primitives, panels/, charts/, chaos/
 │   └── nginx.conf             serves the SPA and proxies /api/*
@@ -133,7 +133,7 @@ shopflow/
     └── load/locustfile.py
 ```
 
-Files marked ★ are the ones worth reading first.
+Files marked * are the ones worth reading first.
 
 ---
 
@@ -180,7 +180,7 @@ npm run dev      # http://localhost:3000
 ```
 
 The Vite dev server proxies `/api/chaos`, `/api/orders` and `/api/mgmt` to the
-containerised services on ports 8080 and 8090 — the same paths nginx serves in
+containerised services on ports 8080 and 8090 - the same paths nginx serves in
 production, so there is no dev-only code path.
 
 ```bash
@@ -193,7 +193,7 @@ npm run lint
 ## The topology
 
 Everything below is generated from `QUEUES` and `EXCHANGES` in
-`src/core/declarations.py`. **Change it there and nowhere else** — the DLX
+`src/core/declarations.py`. **Change it there and nowhere else** - the DLX
 bindings, the chaos service's flood targets and the validation script all derive
 from that one list.
 
@@ -244,7 +244,7 @@ and no onward DLX (there is nowhere further to go).
 
 > **Why the DLX bindings are derived, not listed.** `dead.letter.exchange` is a
 > *direct* exchange, so a dead letter whose routing key has no binding is
-> discarded silently — no error, no log, nothing in the management UI. The bind
+> discarded silently - no error, no log, nothing in the management UI. The bind
 > list used to be maintained by hand next to the queue declarations, and drifted:
 > three entries named queues that did not exist and two real queues were missing
 > entirely, so five of the thirteen queues silently dropped every dead letter.
@@ -256,12 +256,12 @@ and no onward DLX (there is nowhere further to go).
 
 ## How a message flows
 
-`POST /orders/publish` → `publish_order()` in `src/producers/order_producer.py`
+`POST /orders/publish` -> `publish_order()` in `src/producers/order_producer.py`
 publishes, in order, on a channel in **confirm mode**:
 
 1. `payment_queue` via the default exchange, `mandatory=True`
-2. `inventory_queue` — only reached if step 1 was confirmed by the broker
-3. `order.events` (fanout) — one message becomes three
+2. `inventory_queue` - only reached if step 1 was confirmed by the broker
+3. `order.events` (fanout) - one message becomes three
 4. `logs.info` with routing key `info`
 5. `notifications.topic`, five times, once per routing-key combination
 6. `orders.headers` with `{region, format}` headers, `mandatory=True`
@@ -290,7 +290,7 @@ would otherwise vanish.
 | Situation | Action | Result |
 |---|---|---|
 | Processed successfully | `basic_ack` | Removed from the queue |
-| Body will not decode | `basic_nack(requeue=False)` | Straight to the DLX — retrying cannot help |
+| Body will not decode | `basic_nack(requeue=False)` | Straight to the DLX - retrying cannot help |
 | `process_message` raised | `basic_nack(requeue=False)` | To the DLX, `x-death` count incremented |
 | Consumer crashes | *(nothing)* | Broker requeues on TCP disconnect |
 
@@ -322,8 +322,8 @@ DLX Audit tab. Set `LOG_MAX_BYTES=0` to disable rotation.
 
 ### Guarded publishes
 
-Any publish that happens *around* an ack — the audit log on success, the error
-notice on failure — goes through `BaseConsumer._safe_publish`, which swallows
+Any publish that happens *around* an ack - the audit log on success, the error
+notice on failure - goes through `BaseConsumer._safe_publish`, which swallows
 failures. An unguarded publish there escapes into pika's dispatch loop and leaves
 the in-flight message unacked forever.
 
@@ -359,7 +359,7 @@ QUEUES: tuple[QueueSpec, ...] = (
 That is all the topology work. The DLX binding, quorum arguments and TTL are
 applied automatically, and the chaos service can already flood and poison it.
 
-**2. Write the consumer** — `src/consumers/fraud_check_consumer.py`:
+**2. Write the consumer** - `src/consumers/fraud_check_consumer.py`:
 
 ```python
 """Fraud scoring for incoming orders."""
@@ -377,7 +377,7 @@ class FraudCheckConsumer(BaseConsumer):
         self.logger.info("[FRAUD] Cleared order %s", payload.get("order_id"))
 ```
 
-Raise to reject a message — the base class dead-letters it for you. Do not catch
+Raise to reject a message - the base class dead-letters it for you. Do not catch
 and swallow, or the message will be acked as if it succeeded.
 
 **3. Add the container** to `docker-compose.yml`:
@@ -390,7 +390,7 @@ and swallow, or the message will be acked as if it succeeded.
     command: python src/consumers/fraud_check_consumer.py
 ```
 
-**4. Allow the chaos panel to control it** — add the name to `CONSUMERS` in
+**4. Allow the chaos panel to control it** - add the name to `CONSUMERS` in
 `chaos_service/containers.py`.
 
 **5. Rebuild.** Because the queue set changed, start from clean volumes:
@@ -408,7 +408,7 @@ that reads it.
 
 | Variable | Default | Read by |
 |---|---|---|
-| `RABBITMQ_HOST` | `localhost` | `connection.py` — `haproxy` inside Compose |
+| `RABBITMQ_HOST` | `localhost` | `connection.py` - `haproxy` inside Compose |
 | `HAPROXY_AMQP_PORT` | `5670` | `connection.py`; `RABBITMQ_PORT` is accepted as an alias |
 | `RABBITMQ_USER` / `RABBITMQ_PASS` | `admin` / `shopflow123` | AMQP and the management API |
 | `RABBITMQ_VHOST` | `shopflow` | All connections |
@@ -418,12 +418,12 @@ that reads it.
 | `MESSAGE_TTL_MS` | `60000` | `_quorum_args` in `declarations.py` |
 | `LOG_LEVEL` | `INFO` | `logger.py` |
 | `LOG_DIR` | `/app/logs` | `jsonl.py` |
-| `LOG_MAX_BYTES` | `10485760` | `jsonl.py` — rolls a sink to `<name>.1`; `0` disables |
+| `LOG_MAX_BYTES` | `10485760` | `jsonl.py` - rolls a sink to `<name>.1`; `0` disables |
 | `CORS_ORIGINS` | `http://localhost:3000` | Both FastAPI apps |
-| `API_BIND_ADDRESS` | `127.0.0.1` | `docker-compose.yml` — interface the two APIs publish on |
+| `API_BIND_ADDRESS` | `127.0.0.1` | `docker-compose.yml` - interface the two APIs publish on |
 
 > Earlier versions of `.env.example` documented about a dozen variables that no
-> code read — `ENABLE_METRICS`, `PRODUCER_DELIVERY_MODE`,
+> code read - `ENABLE_METRICS`, `PRODUCER_DELIVERY_MODE`,
 > `CONSUMER_RECONNECT_DELAY_SECONDS`, the `LOCUST_*` group and others, plus three
 > "performance profiles" built from them. They have been removed, except
 > `LOG_MAX_SIZE_BYTES`, which was worth having and is now implemented as
@@ -433,13 +433,13 @@ that reads it.
 
 ## API reference
 
-### Producer API — port 8090
+### Producer API - port 8090
 
 | Method | Path | Notes |
 |---|---|---|
 | `POST` | `/orders/publish` | `region` (US/EU), `format` (json/xml), `amount`, `currency`, `customer_name`, `items` |
-| `POST` | `/orders/batch` | Same fields plus `count` (1–1000), over one connection |
-| `POST` | `/orders/flood/{exchange}` | `count` (1–5000), `routing_key`; exchange must be one this system declares |
+| `POST` | `/orders/batch` | Same fields plus `count` (1-1000), over one connection |
+| `POST` | `/orders/flood/{exchange}` | `count` (1-5000), `routing_key`; exchange must be one this system declares |
 | `GET` | `/mgmt/{nodes,overview,connections}` | Management proxy with node failover |
 | `GET` | `/mgmt/{queues,exchanges,consumers,bindings}/{vhost}` | ditto |
 | `GET` | `/health` | Includes `broker_connected` |
@@ -447,7 +447,7 @@ that reads it.
 Status codes: `422` for a request the schema rejects, `503` when the broker
 cannot be reached, `502` when no management node answers.
 
-### Chaos Panel — port 8080
+### Chaos Panel - port 8080
 
 | Method | Path | Notes |
 |---|---|---|
@@ -527,17 +527,17 @@ which is usually enough to see which service refused to start.
   calls.
 - Type hints on function signatures; `dict | None` rather than `Optional[dict]`.
 - Comments explain *why*, not *what*. Several in this codebase document a
-  specific bug that a change prevents — keep those.
+  specific bug that a change prevents - keep those.
 
 ---
 
 ## Upgrade notes
 
-### RabbitMQ 3.13 → 4.3
+### RabbitMQ 3.13 -> 4.3
 
 - **Volumes must be wiped.** 4.x uses Khepri and cannot read 3.13's Mnesia data.
   `docker compose down -v` first.
-- `rabbitmq_peer_discovery_classic_config` was removed from `enabled_plugins` —
+- `rabbitmq_peer_discovery_classic_config` was removed from `enabled_plugins`,
   config-file peer discovery is built into the core in 4.x.
 - `basic.qos(global=true)` is **rejected** in 4.3. All QoS calls pass
   `global_qos=False` explicitly.
@@ -556,7 +556,7 @@ plugin is wired up through `@tailwindcss/vite`.
 
 The dashboard no longer uses `VITE_*` variables. Vite inlines those at build
 time, but Compose supplied them as runtime environment, so every one resolved to
-`undefined` and fell back to `http://localhost:*` — which only worked when the
+`undefined` and fell back to `http://localhost:*` - which only worked when the
 browser happened to be running on the Docker host. All calls are now relative and
 proxied by nginx.
 
@@ -566,7 +566,7 @@ proxied by nginx.
 
 | Decision | Why | Trade-off accepted |
 |---|---|---|
-| `cluster_init` declares topology once | No races, no disagreement about queue arguments | If it fails, nothing starts — deliberate |
+| `cluster_init` declares topology once | No races, no disagreement about queue arguments | If it fails, nothing starts - deliberate |
 | Consumers never declare queues | A stale argument would 406 and loop forever | Topology changes need a teardown |
 | One shared connection in the Producer API | Was opening a connection *and redeclaring the whole topology* per order | pika is not thread-safe, so access is serialised behind a lock |
 | Frontend calls same-origin `/api/*` | Works from any host, not just the Docker host | One nginx hop |
@@ -600,7 +600,7 @@ self._correlation_id(properties, payload)      # consumers read it, with a
 
 Honest list of what is not done.
 
-- **No authentication on either FastAPI service.** This is deliberate — adding
+- **No authentication on either FastAPI service.** This is deliberate - adding
   auth would mean putting credentials in the dashboard, and the whole point is
   a zero-setup demo. Instead both services bind to **loopback only**
   (`API_BIND_ADDRESS`, default `127.0.0.1`), so they are not reachable from the
@@ -618,5 +618,5 @@ Honest list of what is not done.
 ---
 
 <div align="center">
-<sub>ShopFlow · ADK Dev · 2026 — originally Team 9, Three Musketeers, IIITH</sub>
+<sub>ShopFlow · ADK Dev · 2026 - originally Team 9, Three Musketeers, IIITH</sub>
 </div>
