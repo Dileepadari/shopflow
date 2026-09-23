@@ -210,26 +210,71 @@ right.
 | **Publisher** | Publish a raw message to any exchange, with ready-made samples per exchange type |
 | **Chaos** | Break things (see below) |
 
-Real renders against the full 24-container stack under a sustained load of 300 orders every
-four seconds, so the charts and queue depths are real traffic rather than an idle system.
-This page shows **dark mode**; the same gallery in light mode is at
-**[README-light.md](./README-light.md)**.
+Every image is a real 1440x900 viewport render against the full 24-container stack under a sustained load of 300 orders every four seconds, so the charts and queue depths are real traffic rather than an idle system. This page shows **dark mode**; the same gallery in light mode is at **[README-light.md](./README-light.md)**.
 
-| | |
-|---|---|
-| **Overview** <br> Cluster totals, live publish and acknowledge rates sampled every two seconds, and the deepest queues right now <br><br> <img src="docs/screenshots/dark/01-overview.png" alt="Overview tab: cluster totals and a live throughput chart" loading="lazy"> | **Queues** <br> All fourteen queues with backlog, in-flight count and consumers. Every one is quorum, so it is replicated across all three nodes <br><br> <img src="docs/screenshots/dark/02-queues.png" alt="Queues tab: per-queue backlog, unacknowledged count, consumers and queue type" loading="lazy"> |
-| **Exchanges** <br> Each exchange with everything bound to it and the routing key or header rule doing the binding. The map to read when a message does not arrive <br><br> <img src="docs/screenshots/dark/03-exchanges.png" alt="Exchanges tab: each exchange with its bindings and routing keys" loading="lazy"> | **Consumers** <br> Live subscriptions, prefetch and acknowledgement mode, and which container each runs in. A stopped consumer shows here before the backlog does <br><br> <img src="docs/screenshots/dark/04-consumers.png" alt="Consumers tab: active subscriptions with prefetch and acknowledgement mode" loading="lazy"> |
-| **DLX Audit** <br> Everything that failed permanently: source queue, whether it expired or exhausted its retries, and the order it belonged to <br><br> <img src="docs/screenshots/dark/05-dlx-audit.png" alt="DLX Audit tab: dead lettered messages with their source queue and retry count" loading="lazy"> | **Orders** <br> Place one order or a batch, in JSON or XML, to either region <br><br> <img src="docs/screenshots/dark/06-orders.png" alt="Orders tab: form for publishing single orders or batches" loading="lazy"> |
-| **Publisher** <br> Publish a raw message to any exchange. Picking one explains how that type routes and offers samples that demonstrate it <br><br> <img src="docs/screenshots/dark/07-publisher.png" alt="Publisher tab: raw message published to a topic exchange with a routing key" loading="lazy"> | **Chaos** <br> Stop, kill or pause any consumer, and take a broker node down. Every action here is reversible <br><br> <img src="docs/screenshots/dark/08-chaos.png" alt="Chaos tab: controls for stopping, killing and pausing consumers and broker nodes" loading="lazy"> |
+<table>
+  <tr>
+    <td width="33%" valign="top">
+      <img src="./docs/screenshots/dark/01-overview.png" alt="Overview tab: cluster totals and a live throughput chart" loading="lazy">
+      <p align="center"><b>Overview</b><br><sub>Cluster totals and live publish, deliver and ack rates.</sub></p>
+    </td>
+    <td width="33%" valign="top">
+      <img src="./docs/screenshots/dark/02-queues.png" alt="Queues tab: per-queue backlog, unacknowledged count, consumers and queue type" loading="lazy">
+      <p align="center"><b>Queues</b><br><sub>Backlog, in-flight and consumers for all fourteen quorum queues.</sub></p>
+    </td>
+    <td width="33%" valign="top">
+      <img src="./docs/screenshots/dark/03-exchanges.png" alt="Exchanges tab: each exchange with its bindings and routing keys" loading="lazy">
+      <p align="center"><b>Exchanges</b><br><sub>What is bound to each exchange, and the key or header that binds it.</sub></p>
+    </td>
+  </tr>
+  <tr>
+    <td width="33%" valign="top">
+      <img src="./docs/screenshots/dark/04-consumers.png" alt="Consumers tab: active subscriptions with prefetch and acknowledgement mode" loading="lazy">
+      <p align="center"><b>Consumers</b><br><sub>Live subscriptions, prefetch, ack mode, and the container behind each.</sub></p>
+    </td>
+    <td width="33%" valign="top">
+      <img src="./docs/screenshots/dark/05-dlx-audit.png" alt="DLX Audit tab: dead lettered messages with their source queue and retry count" loading="lazy">
+      <p align="center"><b>DLX Audit</b><br><sub>Everything that failed for good: source queue, reason, retry count.</sub></p>
+    </td>
+    <td width="33%" valign="top">
+      <img src="./docs/screenshots/dark/06-orders.png" alt="Orders tab: form for publishing single orders or batches" loading="lazy">
+      <p align="center"><b>Orders</b><br><sub>Place one order or a batch, in JSON or XML, to either region.</sub></p>
+    </td>
+  </tr>
+  <tr>
+    <td width="33%" valign="top">
+      <img src="./docs/screenshots/dark/07-publisher.png" alt="Publisher tab: a raw message published to a topic exchange with a routing key" loading="lazy">
+      <p align="center"><b>Publisher</b><br><sub>Publish to any exchange, with samples that demonstrate its routing.</sub></p>
+    </td>
+    <td width="33%" valign="top">
+      <img src="./docs/screenshots/dark/08-chaos.png" alt="Chaos tab: controls for stopping, killing and pausing consumers and broker nodes" loading="lazy">
+      <p align="center"><b>Chaos</b><br><sub>Stop, kill or pause a consumer, or take a broker node down. All reversible.</sub></p>
+    </td>
+    <td width="33%"></td>
+  </tr>
+</table>
 
 ### Responsive layout
 
-The queue table drops its Unacked and Type columns below 640px and the tab bar scrolls
+The queue table drops its Unacked and Type columns below 640px, and the tab bar scrolls
 horizontally rather than wrapping.
 
-| Phone, 390px | Phone, 390px | Tablet, 820px |
-|---|---|---|
-| <img src="docs/screenshots/responsive/mobile-overview.png" alt="Overview tab on a phone" loading="lazy"> | <img src="docs/screenshots/responsive/mobile-queues.png" alt="Queues tab on a phone" loading="lazy"> | <img src="docs/screenshots/responsive/tablet-overview.png" alt="Overview tab on a tablet" loading="lazy"> |
+<table>
+  <tr>
+    <td width="25%" valign="top">
+      <img src="./docs/screenshots/responsive/mobile-overview.png" alt="Overview tab at 390px wide" loading="lazy">
+      <p align="center"><sub><b>Overview</b><br>390 x 844</sub></p>
+    </td>
+    <td width="25%" valign="top">
+      <img src="./docs/screenshots/responsive/mobile-queues.png" alt="Queues tab at 390px wide" loading="lazy">
+      <p align="center"><sub><b>Queues</b><br>390 x 844</sub></p>
+    </td>
+    <td width="50%" valign="top">
+      <img src="./docs/screenshots/responsive/tablet-overview.png" alt="Overview tab at 820px wide" loading="lazy">
+      <p align="center"><sub><b>Overview</b><br>820 x 1180</sub></p>
+    </td>
+  </tr>
+</table>
 
 ---
 
