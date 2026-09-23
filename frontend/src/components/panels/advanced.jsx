@@ -108,7 +108,7 @@ export function DLXAuditLogPanel({ dlxHistory = [], loading, error }) {
                   <div className="flex items-start justify-between gap-3 flex-wrap">
                     <div className="min-w-0">
                       <Mono className="text-content">
-                        {record.original_queue || 'unknown'} -> dead_letter_queue
+                        {record.original_queue || 'unknown'} {'->'} dead_letter_queue
                       </Mono>
                       <p className="text-xs text-muted mt-1">
                         {record.received_at

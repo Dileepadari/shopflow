@@ -105,10 +105,23 @@ jobs:
       - uses: actions/checkout@v7
       - name: Validate docker-compose.yml
         run: docker compose config --quiet
+      # The credentials have to be supplied: haproxy.cfg refuses to parse
+      # without them rather than publishing the stats page on an empty
+      # password, so a bare `haproxy -c` is expected to fail now.
       - name: Validate HAProxy config
         run: |
           docker run --rm -v "$PWD/infrastructure/haproxy:/cfg:ro" \
+            -e RABBITMQ_USER=admin -e RABBITMQ_PASS=ci-not-a-real-password \
             haproxy:3.4-alpine haproxy -c -f /cfg/haproxy.cfg
+
+      - name: And refuses to start without them
+        run: |
+          if docker run --rm -v "$PWD/infrastructure/haproxy:/cfg:ro" \
+               haproxy:3.4-alpine haproxy -c -f /cfg/haproxy.cfg 2>/dev/null; then
+            echo "haproxy.cfg parsed with no credentials set; the stats page would have an empty password."
+            exit 1
+          fi
+          echo "refused, as it should" 
 
   integration:
     name: Integration - full stack
