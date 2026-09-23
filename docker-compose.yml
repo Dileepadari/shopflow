@@ -166,13 +166,6 @@ services:
       - "${HAPROXY_STATS_PORT:-8404}:8404"
     volumes:
       - ./infrastructure/haproxy/haproxy.cfg:/usr/local/etc/haproxy/haproxy.cfg:ro
-    # haproxy.cfg expands these at parse time for the stats page credentials,
-    # and refuses to start if either is missing. The defaults here are what
-    # make that safe: compose always supplies a value, so the guard only fires
-    # for someone running the container by hand without an environment.
-    environment:
-      RABBITMQ_USER: ${RABBITMQ_USER:-admin}
-      RABBITMQ_PASS: ${RABBITMQ_PASS:-shopflow123}
     depends_on:
       rabbit1:
         condition: service_healthy
