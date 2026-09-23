@@ -395,7 +395,7 @@ docker compose down        # remove containers, keep queued messages
 Architecture, the full message topology, running services outside Docker, the API
 reference, and how to add a consumer:
 
-### **[docs/DEVELOPMENT.md](docs/DEVELOPMENT.md)**
+### **[DEVDOC.md](DEVDOC.md)**
 
 The original product specification is in [`ShopFlow_PRD.pdf`](ShopFlow_PRD.pdf).
 
@@ -414,3 +414,7 @@ the system's behaviour and is included in this repository.
 <div align="center">
 <sub>ShopFlow · ADK Dev · 2026</sub>
 </div>
+
+## License
+
+MIT. See [LICENSE](LICENSE).
