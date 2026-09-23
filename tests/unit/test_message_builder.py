@@ -85,7 +85,12 @@ class TestSerialization:
         assert decode(encode(payload)) == payload
 
     def test_encodes_utf8(self):
-        assert decode(encode({"name": "Ünicode ☕"}))["name"] == "Ünicode ☕"
+        # Two, three and four byte sequences: a Latin-1 supplement letter, a CJK
+        # ideograph, and an astral-plane codepoint that is a surrogate pair in
+        # UTF-16. The last one is the interesting case, because a library that
+        # round-trips the first two can still mangle it.
+        text = "Ünicode 日本語 𝄞"
+        assert decode(encode({"name": text}))["name"] == text
 
     def test_non_json_types_are_stringified(self):
         """default=str keeps encode from raising on datetimes and similar."""
