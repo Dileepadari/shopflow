@@ -114,8 +114,79 @@ by path, with the reason written next to the exemption.
   box, and warns to change all three before exposing it to a network. That is
   the right call for a teaching system, and the Erlang cookie is in the same
   category.
-- **No dashboard screenshots.** Capturing them needs all 24 services up, and
-  this machine was already running the owner's local Supabase stack and
-  TourismToolKit, both up twelve hours. Starting a three-node RabbitMQ cluster
-  and sixteen consumers alongside them risked the OOM killer taking something of
-  theirs. Left for the owner to decide.
+- **The demo footer credit to Team 9.** This repository is one person's fork of
+  a four-person course project and says so in the README credits. Attribution
+  stays.
+
+---
+
+## The capture pass, later the same day
+
+Screenshots were deferred earlier in the day because the machine was already
+running the owner's local Supabase stack and TourismToolKit, fourteen containers
+up for a day, and ShopFlow wants twenty-four more. Asked; the answer was to stop
+theirs, capture, and start them again. Recorded the fourteen container names and
+the volume count first, because a restore you have not written down is a guess.
+
+There was also a subnet collision: ShopFlow's compose file asks for
+172.20.0.0/16 and a leftover `nevermind-hackiiith_default` network already held
+it. Saved that network's full inspect output, removed it, and recreated it
+afterwards with the same driver, subnet, gateway and the four compose labels, so
+a later `docker compose up` in that project finds what it expects rather than
+making a new one somewhere else.
+
+### The arrow that survived the sweep
+
+`sweep.sh` was clean. The built bundle contained a literal hyphen and
+greater-than. The dashboard still rendered a single arrow.
+
+JetBrains Mono ligates `->` into one glyph, visually identical to U+2192. Every
+screenshot would have shipped the exact character this whole exercise exists to
+remove, and no text-based check could ever have found it, because the character
+is not in any file.
+
+`font-variant-ligatures: none` plus `font-feature-settings: 'liga' 0, 'calt' 0`
+on the mono selectors. `liga` alone does not do it: the arrow is a contextual
+alternate, so `calt` has to go too. Rebuilt the frontend image and recaptured.
+
+I am not sure this counts as a bug in the project. The routing lines are written
+in two characters and now render as two, which is what they say; before, the
+page quietly disagreed with its own source. That seems worth the one rule.
+
+### The screenshot scale, again
+
+The previous session's lesson was to measure the screenshot scale in the tab you
+are capturing from, every session. I measured it, got 0.7875, and half an hour
+later a plain screenshot came back 1551 wide against a 1920 viewport, which is
+0.8078. The scale had changed mid-session.
+
+Spent a while convinced sixteen captures were cropped by 2.5 percent. They were
+not: `[0, 0, 1134, 709]` and `[0, 0, 1163, 727]` produce byte-comparable images,
+so the zoom is snapping to the frame somewhere. `[0, 0, 1190, 745]` does show
+page background past the edge, so the region is not ignored either.
+
+The useful part is not the arithmetic. It is that the check which settled it was
+comparing two saved files pixel by pixel, not staring harder at two previews.
+The retake would have cost half an hour and produced identical bytes.
+
+### What the load loop showed
+
+Captures were taken under a sustained 300 orders every four seconds so the charts
+would show traffic instead of a flat line. Two things came out of that which are
+not in the screenshots:
+
+- the producer API returned occasional 503s from `/orders/batch`
+- batch calls that normally answer in well under a second stretched to about six
+  seconds with sixteen consumers and eight thousand messages in flight, enough
+  that a loop written to take four minutes took sixteen
+
+Neither is investigated. The load was deliberately heavier than anything the
+README suggests, and the stack had to come down to give the machine back. Both
+are in the report so they are not lost.
+
+### Restored
+
+Fourteen containers back up and healthy, network recreated with the same subnet,
+gateway and labels, forty-four volumes intact. ShopFlow's own four volumes are
+still on disk: removing them needed a permission this session did not have, and
+`docker compose down -v` does it anyway.
