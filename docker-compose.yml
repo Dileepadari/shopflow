@@ -3,10 +3,10 @@
 #  Run everything:  docker compose up --build
 #
 #  Service startup order:
-#    rabbit1/2/3  →  haproxy  →  cluster_init  →  [all 16 consumers]
-#                                               →  chaos_service
-#                                               →  producer_api
-#                                               →  frontend
+#    rabbit1/2/3 ->  haproxy ->  cluster_init ->  [all 16 consumers]
+#                                              ->  chaos_service
+#                                              ->  producer_api
+#                                              ->  frontend
 #
 #  NOTE: upgrading RabbitMQ requires starting from clean volumes.
 #        Run `docker compose down -v` first.
@@ -166,6 +166,13 @@ services:
       - "${HAPROXY_STATS_PORT:-8404}:8404"
     volumes:
       - ./infrastructure/haproxy/haproxy.cfg:/usr/local/etc/haproxy/haproxy.cfg:ro
+    # haproxy.cfg expands these at parse time for the stats page credentials,
+    # and refuses to start if either is missing. The defaults here are what
+    # make that safe: compose always supplies a value, so the guard only fires
+    # for someone running the container by hand without an environment.
+    environment:
+      RABBITMQ_USER: ${RABBITMQ_USER:-admin}
+      RABBITMQ_PASS: ${RABBITMQ_PASS:-shopflow123}
     depends_on:
       rabbit1:
         condition: service_healthy
