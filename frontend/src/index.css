@@ -146,6 +146,20 @@
     font-family: var(--font-mono);
   }
 
+  /* JetBrains Mono ligates a hyphen plus a greater-than into one arrow glyph.
+     The routing lines are written as two plain characters and have to render
+     as two, so ligatures are off wherever the mono face is used. `liga 0` is
+     not enough on its own: the arrow is a contextual alternate, so `calt`
+     has to go too. */
+  code,
+  pre,
+  kbd,
+  samp,
+  .font-mono {
+    font-variant-ligatures: none;
+    font-feature-settings: 'liga' 0, 'calt' 0;
+  }
+
   :focus-visible {
     outline: 2px solid var(--brand);
     outline-offset: 2px;
